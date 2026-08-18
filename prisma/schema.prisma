@@ -19,6 +19,59 @@ enum UserStatus {
   PENDING
 }
 
+enum ProjectStatus {
+  DRAFT
+  OPEN
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+}
+
+enum TaskStatus {
+  DRAFT
+  AVAILABLE
+  ASSIGNED
+  IN_PROGRESS
+  SUBMITTED
+  REVIEW
+  COMPLETED
+  CANCELLED
+}
+
+enum AssignmentStatus {
+  PENDING
+  ACCEPTED
+  IN_PROGRESS
+  SUBMITTED
+  COMPLETED
+  REJECTED
+  CANCELLED
+}
+
+enum SubmissionStatus {
+  SUBMITTED
+  UNDER_REVIEW
+  REVISION_REQUIRED
+  APPROVED
+  REJECTED
+}
+
+enum ReviewStatus {
+  PENDING
+  IN_REVIEW
+  APPROVED
+  REVISION_REQUIRED
+  REJECTED
+}
+
+enum QualificationStatus {
+  NOT_STARTED
+  IN_PROGRESS
+  PASSED
+  FAILED
+  EXPIRED
+}
+
 model User {
   id           String     @id @default(uuid())
   email        String     @unique
@@ -30,6 +83,13 @@ model User {
 
   workerProfile WorkerProfile?
   clientProfile ClientProfile?
+
+  projects       Project[]
+  tasks          Task[]
+  assignments    Assignment[]
+  submissions    Submission[]
+  reviews        Review[]
+  qualifications WorkerQualification[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -65,4 +125,149 @@ model ClientProfile {
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+}
+
+model Project {
+  id          String        @id @default(uuid())
+  clientId    String
+  title       String
+  description String
+  category    String
+  budget      Decimal       @db.Decimal(12, 2)
+  status      ProjectStatus @default(DRAFT)
+  deadline    DateTime?
+
+  client User @relation(fields: [clientId], references: [id], onDelete: Cascade)
+
+  tasks Task[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([clientId])
+  @@index([status])
+  @@index([category])
+}
+
+model Task {
+  id        String  @id @default(uuid())
+  projectId String
+  workerId  String?
+
+  title       String
+  description String
+  category    String
+  reward      Decimal    @db.Decimal(12, 2)
+  status      TaskStatus @default(DRAFT)
+  deadline    DateTime?
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  worker  User?   @relation(fields: [workerId], references: [id], onDelete: SetNull)
+
+  assignments Assignment[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([projectId])
+  @@index([workerId])
+  @@index([status])
+  @@index([category])
+}
+
+model Assignment {
+  id       String @id @default(uuid())
+  taskId   String
+  workerId String
+
+  status AssignmentStatus @default(PENDING)
+
+  assignedAt  DateTime  @default(now())
+  acceptedAt  DateTime?
+  startedAt   DateTime?
+  submittedAt DateTime?
+  completedAt DateTime?
+
+  task   Task @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  worker User @relation(fields: [workerId], references: [id], onDelete: Cascade)
+
+  submissions Submission[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([taskId, workerId])
+  @@index([taskId])
+  @@index([workerId])
+  @@index([status])
+}
+
+model Submission {
+  id           String @id @default(uuid())
+  assignmentId String
+  workerId     String
+
+  content String?
+
+  status SubmissionStatus @default(SUBMITTED)
+
+  submittedAt DateTime  @default(now())
+  reviewedAt  DateTime?
+
+  assignment Assignment @relation(fields: [assignmentId], references: [id], onDelete: Cascade)
+  worker     User       @relation(fields: [workerId], references: [id], onDelete: Cascade)
+
+  reviews Review[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([assignmentId])
+  @@index([workerId])
+  @@index([status])
+}
+
+model Review {
+  id           String @id @default(uuid())
+  submissionId String
+  reviewerId   String
+
+  status ReviewStatus @default(PENDING)
+
+  score      Int?
+  feedback   String?
+  reviewedAt DateTime?
+
+  submission Submission @relation(fields: [submissionId], references: [id], onDelete: Cascade)
+  reviewer   User       @relation(fields: [reviewerId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([submissionId])
+  @@index([reviewerId])
+  @@index([status])
+}
+
+model WorkerQualification {
+  id       String @id @default(uuid())
+  workerId String
+
+  name        String
+  category    String
+  description String?
+
+  status QualificationStatus @default(NOT_STARTED)
+
+  score     Int?
+  expiresAt DateTime?
+
+  worker User @relation(fields: [workerId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([workerId])
+  @@index([category])
+  @@index([status])
 }
