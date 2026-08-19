@@ -1,8 +1,106 @@
 "use client";
 
 import Link from "next/link";
+import { ChangeEvent, useEffect, useState } from "react";
 
 export default function WorkerProfile() {
+  const [resumeName, setResumeName] = useState("");
+  const [resumeLoading, setResumeLoading] = useState(true);
+  const [resumeUploading, setResumeUploading] = useState(false);
+  const [resumeError, setResumeError] = useState("");
+  const [resumeSuccess, setResumeSuccess] = useState("");
+
+  useEffect(() => {
+    async function loadResume() {
+      try {
+        const response = await fetch("/api/worker/profile/resume", {
+          cache: "no-store",
+        });
+
+        if (response.status === 404) {
+          setResumeName("");
+          return;
+        }
+
+        if (!response.ok) {
+          throw new Error("Unable to load resume.");
+        }
+
+        const disposition = response.headers.get("content-disposition");
+        const match = disposition?.match(/filename="([^"]+)"/);
+
+        if (match?.[1]) {
+          setResumeName(match[1]);
+        }
+      } catch (error) {
+        console.error("Resume loading error:", error);
+      } finally {
+        setResumeLoading(false);
+      }
+    }
+
+    loadResume();
+  }, []);
+
+  async function handleResumeUpload(
+    event: ChangeEvent<HTMLInputElement>
+  ) {
+    const file = event.target.files?.[0];
+
+    if (!file) {
+      return;
+    }
+
+    setResumeError("");
+    setResumeSuccess("");
+
+    const allowedTypes = [
+      "application/pdf",
+      "application/msword",
+      "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    ];
+
+    if (!allowedTypes.includes(file.type)) {
+      setResumeError("Only PDF, DOC, and DOCX files are allowed.");
+      event.target.value = "";
+      return;
+    }
+
+    if (file.size > 5 * 1024 * 1024) {
+      setResumeError("Resume must be 5 MB or smaller.");
+      event.target.value = "";
+      return;
+    }
+
+    setResumeUploading(true);
+
+    try {
+      const formData = new FormData();
+      formData.append("resume", file);
+
+      const response = await fetch("/api/worker/profile/resume", {
+        method: "POST",
+        body: formData,
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        setResumeError(data?.error || "Unable to upload your resume.");
+        return;
+      }
+
+      setResumeName(data.resume.name);
+      setResumeSuccess("Resume uploaded successfully.");
+    } catch (error) {
+      console.error("Resume upload error:", error);
+      setResumeError("Unable to upload your resume. Please try again.");
+    } finally {
+      setResumeUploading(false);
+      event.target.value = "";
+    }
+  }
+
   return (
     <main className="min-h-screen bg-[#07111f] text-white">
       {/* HEADER */}
@@ -132,7 +230,96 @@ export default function WorkerProfile() {
                 description="Evaluating AI responses, reviewing datasets and assessing response quality."
               />
             </section>
+            
+            {/* RESUME */}
+<section className="rounded-3xl border border-white/10 bg-white/[0.03] p-7">
+  <div className="flex items-center justify-between">
+    <div>
+      <h2 className="text-xl font-bold">Resume / CV</h2>
+      <p className="text-sm text-gray-500 mt-1">
+        Upload your resume so clients and project managers can review your
+        experience.
+      </p>
+    </div>
+  </div>
 
+  <div className="mt-6 rounded-2xl border border-dashed border-white/10 bg-black/10 p-6">
+    {resumeName ? (
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+        <div>
+          <p className="text-sm text-gray-400">Current resume</p>
+          <p className="font-semibold mt-1">{resumeName}</p>
+          <p className="text-xs text-green-400 mt-1">
+            ✓ Resume uploaded
+          </p>
+        </div>
+
+        <a
+          href="/api/worker/profile/resume"
+          className="px-4 py-2.5 rounded-xl border border-white/10 bg-white/[0.04] hover:bg-white/[0.08] transition text-sm text-center"
+        >
+          Download
+        </a>
+      </div>
+    ) : (
+      <div>
+        <p className="text-sm text-gray-400">
+          No resume uploaded yet.
+        </p>
+        <p className="text-xs text-gray-600 mt-1">
+          Accepted formats: PDF, DOC, DOCX. Maximum size: 5 MB.
+        </p>
+      </div>
+    )}
+
+    <div className="mt-5">
+      <label
+        htmlFor="resume"
+        className="block text-sm font-medium text-gray-300 mb-2"
+      >
+        {resumeName ? "Replace resume" : "Upload resume"}
+      </label>
+
+      <input
+        id="resume"
+        type="file"
+        accept=".pdf,.doc,.docx,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+        onChange={handleResumeUpload}
+        disabled={resumeUploading}
+        className="block w-full text-sm text-gray-400
+          file:mr-4 file:rounded-xl file:border-0
+          file:bg-cyan-400 file:px-4 file:py-2.5
+          file:text-sm file:font-semibold file:text-black
+          hover:file:bg-cyan-300
+          disabled:opacity-50"
+      />
+    </div>
+
+    {resumeLoading && (
+      <p className="text-sm text-gray-500 mt-4">
+        Loading resume information...
+      </p>
+    )}
+
+    {resumeUploading && (
+      <p className="text-sm text-cyan-400 mt-4">
+        Uploading resume...
+      </p>
+    )}
+
+    {resumeError && (
+      <p className="text-sm text-red-400 mt-4">
+        {resumeError}
+      </p>
+    )}
+
+    {resumeSuccess && (
+      <p className="text-sm text-green-400 mt-4">
+        {resumeSuccess}
+      </p>
+    )}
+  </div>
+</section>
             {/* EDUCATION */}
             <section className="rounded-3xl border border-white/10 bg-white/[0.03] p-7">
               <div className="flex items-center justify-between">
