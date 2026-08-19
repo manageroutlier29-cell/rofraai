@@ -1,10 +1,84 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
+import { signIn } from "next-auth/react";
+import { FormEvent, useState } from "react";
 
 export default function LoginPage() {
   const [showPassword, setShowPassword] = useState(false);
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
+
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+
+    setError("");
+    setLoading(true);
+
+    try {
+      const result = await signIn("credentials", {
+        email: email.trim().toLowerCase(),
+        password,
+        redirect: false,
+      });
+
+      if (!result || result.error) {
+        setError("Invalid email or password.");
+        setLoading(false);
+        return;
+      }
+
+      /*
+       * NextAuth has now created the session.
+       * Fetch the session so we can determine the user's role.
+       */
+      const sessionResponse = await fetch("/api/auth/session", {
+        method: "GET",
+        cache: "no-store",
+      });
+
+      if (!sessionResponse.ok) {
+        setError("Login succeeded, but we could not load your account.");
+        setLoading(false);
+        return;
+      }
+
+      const session = await sessionResponse.json();
+
+      const role = session?.user?.role;
+
+      /*
+       * Redirect users according to their account role.
+       */
+      if (role === "ADMIN") {
+        window.location.href = "/admin";
+        return;
+      }
+
+      if (role === "CLIENT") {
+        window.location.href = "/for-clients";
+        return;
+      }
+
+      if (role === "WORKER") {
+        window.location.href = "/worker";
+        return;
+      }
+
+      setError(
+        "Your account does not have a valid platform role. Please contact support."
+      );
+
+      setLoading(false);
+    } catch (err) {
+      console.error("Login error:", err);
+
+      setError("Something went wrong while signing in. Please try again.");
+      setLoading(false);
+    }
+  }
 
   return (
     <main className="min-h-screen bg-[#07111f] text-white">
@@ -81,28 +155,57 @@ export default function LoginPage() {
                 </p>
               </div>
 
-              <form className="mt-8 space-y-5">
+              {error && (
+                <div className="mt-6 rounded-xl border border-red-400/20 bg-red-400/10 px-4 py-3 text-sm leading-5 text-red-400">
+                  {error}
+                </div>
+              )}
+
+              <form
+                className="mt-8 space-y-5"
+                onSubmit={handleSubmit}
+              >
+                {/* EMAIL */}
                 <div>
-                  <label className="mb-2 block text-sm font-medium text-gray-300">
+                  <label
+                    htmlFor="email"
+                    className="mb-2 block text-sm font-medium text-gray-300"
+                  >
                     Email address
                   </label>
 
                   <input
+                    id="email"
+                    name="email"
                     type="email"
+                    value={email}
+                    onChange={(event) => setEmail(event.target.value)}
                     placeholder="you@example.com"
-                    className="w-full rounded-xl border border-white/10 bg-black/20 px-4 py-3.5 text-white outline-none transition placeholder:text-gray-600 focus:border-cyan-400/50 focus:ring-2 focus:ring-cyan-400/10"
+                    autoComplete="email"
+                    required
+                    disabled={loading}
+                    className="w-full rounded-xl border border-white/10 bg-black/20 px-4 py-3.5 text-white outline-none transition placeholder:text-gray-600 focus:border-cyan-400/50 focus:ring-2 focus:ring-cyan-400/10 disabled:cursor-not-allowed disabled:opacity-60"
                   />
                 </div>
 
+                {/* PASSWORD */}
                 <div>
                   <div className="mb-2 flex items-center justify-between">
-                    <label className="text-sm font-medium text-gray-300">
+                    <label
+                      htmlFor="password"
+                      className="text-sm font-medium text-gray-300"
+                    >
                       Password
                     </label>
 
                     <button
                       type="button"
                       className="text-xs text-cyan-400 hover:text-cyan-300"
+                      onClick={() =>
+                        setError(
+                          "Password recovery will be available soon."
+                        )
+                      }
                     >
                       Forgot password?
                     </button>
@@ -110,51 +213,81 @@ export default function LoginPage() {
 
                   <div className="relative">
                     <input
+                      id="password"
+                      name="password"
                       type={showPassword ? "text" : "password"}
+                      value={password}
+                      onChange={(event) =>
+                        setPassword(event.target.value)
+                      }
                       placeholder="Enter your password"
-                      className="w-full rounded-xl border border-white/10 bg-black/20 px-4 py-3.5 pr-20 text-white outline-none transition placeholder:text-gray-600 focus:border-cyan-400/50 focus:ring-2 focus:ring-cyan-400/10"
+                      autoComplete="current-password"
+                      required
+                      disabled={loading}
+                      className="w-full rounded-xl border border-white/10 bg-black/20 px-4 py-3.5 pr-20 text-white outline-none transition placeholder:text-gray-600 focus:border-cyan-400/50 focus:ring-2 focus:ring-cyan-400/10 disabled:cursor-not-allowed disabled:opacity-60"
                     />
 
                     <button
                       type="button"
-                      onClick={() => setShowPassword(!showPassword)}
-                      className="absolute right-4 top-1/2 -translate-y-1/2 text-xs text-gray-500 hover:text-white"
+                      onClick={() =>
+                        setShowPassword((current) => !current)
+                      }
+                      disabled={loading}
+                      className="absolute right-4 top-1/2 -translate-y-1/2 text-xs text-gray-500 hover:text-white disabled:opacity-50"
                     >
                       {showPassword ? "Hide" : "Show"}
                     </button>
                   </div>
                 </div>
 
+                {/* REMEMBER ME */}
                 <label className="flex items-center gap-3 text-sm text-gray-400">
                   <input
                     type="checkbox"
                     className="h-4 w-4 rounded border-white/20 bg-black/20"
+                    disabled={loading}
                   />
 
                   Remember me
                 </label>
 
+                {/* SUBMIT */}
                 <button
                   type="submit"
-                  className="w-full rounded-xl bg-cyan-400 py-3.5 font-bold text-[#06101d] transition hover:bg-cyan-300"
+                  disabled={loading}
+                  className="w-full rounded-xl bg-cyan-400 py-3.5 font-bold text-[#06101d] transition hover:bg-cyan-300 disabled:cursor-not-allowed disabled:opacity-50"
                 >
-                  Sign In
+                  {loading ? "Signing in..." : "Sign In"}
                 </button>
               </form>
 
               <div className="my-7 flex items-center gap-4">
                 <div className="h-px flex-1 bg-white/10" />
-                <span className="text-xs text-gray-600">OR</span>
+
+                <span className="text-xs text-gray-600">
+                  OR
+                </span>
+
                 <div className="h-px flex-1 bg-white/10" />
               </div>
 
-              <button className="flex w-full items-center justify-center gap-3 rounded-xl border border-white/10 bg-white/5 py-3.5 font-medium transition hover:bg-white/10">
+              <button
+                type="button"
+                onClick={() =>
+                  setError(
+                    "Google sign-in will be available soon."
+                  )
+                }
+                className="flex w-full items-center justify-center gap-3 rounded-xl border border-white/10 bg-white/5 py-3.5 font-medium transition hover:bg-white/10"
+              >
                 <span className="text-lg">G</span>
+
                 Continue with Google
               </button>
 
               <p className="mt-8 text-center text-sm text-gray-500">
                 Don't have an account?{" "}
+
                 <Link
                   href="/register"
                   className="font-semibold text-cyan-400 hover:text-cyan-300"
@@ -189,7 +322,10 @@ function InfoCard({
   return (
     <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-5">
       <p className="text-2xl font-bold">{value}</p>
-      <p className="mt-1 text-sm text-gray-500">{label}</p>
+
+      <p className="mt-1 text-sm text-gray-500">
+        {label}
+      </p>
     </div>
   );
 }

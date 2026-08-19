@@ -1,427 +1,664 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
-type Transaction = {
-  id: number;
-  task: string;
-  project: string;
-  date: string;
+type Earning = {
+  id: string;
   amount: string;
-  status: "Paid" | "Pending";
+  status: "PENDING" | "AVAILABLE" | "PAID" | "REVERSED";
+  description: string | null;
+  assignmentId: string;
+  task: {
+    id: string;
+    title: string;
+    category: string;
+    reward: string;
+  };
+  project: {
+    id: string;
+    title: string;
+  };
+  availableAt: string | null;
+  paidAt: string | null;
+  reversedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
 };
 
-const transactions: Transaction[] = [
-  {
-    id: 1,
-    task: "Financial Reasoning Review",
-    project: "Finance AI Evaluation",
-    date: "Aug 18, 2026",
-    amount: "$24.00",
-    status: "Paid",
-  },
-  {
-    id: 2,
-    task: "Data Quality Assessment",
-    project: "Data Quality",
-    date: "Aug 17, 2026",
-    amount: "$12.75",
-    status: "Paid",
-  },
-  {
-    id: 3,
-    task: "AI Response Evaluation",
-    project: "General AI Quality",
-    date: "Aug 18, 2026",
-    amount: "$18.50",
-    status: "Pending",
-  },
-  {
-    id: 4,
-    task: "Customer Support Classification",
-    project: "Support AI Training",
-    date: "Aug 15, 2026",
-    amount: "$15.25",
-    status: "Paid",
-  },
-  {
-    id: 5,
-    task: "Economic Forecast Evaluation",
-    project: "Economic AI Research",
-    date: "Aug 14, 2026",
-    amount: "$31.00",
-    status: "Paid",
-  },
-];
+type Withdrawal = {
+  id: string;
+  amount: string;
+  status: "PENDING" | "PROCESSING" | "PAID" | "FAILED" | "CANCELLED";
+  paymentMethod: string | null;
+  requestedAt: string;
+};
+
+type PaymentAccount = {
+  id: string;
+  type: "MPESA" | "BANK";
+  status: "ACTIVE" | "INACTIVE";
+  isDefault: boolean;
+  accountName: string | null;
+  phoneNumber: string | null;
+  bankName: string | null;
+  accountNumber: string | null;
+  bankCode: string | null;
+  country: string;
+  currency: string;
+};
+
+type PaymentAccountsResponse = {
+  success: boolean;
+  accounts: PaymentAccount[];
+};
+
+type EarningsResponse = {
+  success: boolean;
+  balance: {
+    available: string;
+    pending: string;
+    paidOut: string;
+    totalEarned: string;
+  };
+  earnings: Earning[];
+};
+
+type WithdrawalsResponse = {
+  success: boolean;
+  withdrawals: Withdrawal[];
+};
 
 export default function EarningsPage() {
+  const [data, setData] = useState<EarningsResponse | null>(null);
+  const [withdrawals, setWithdrawals] = useState<Withdrawal[]>([]);
+  const [paymentAccounts, setPaymentAccounts] = useState<PaymentAccount[]>([]);
+
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+
   const [showWithdraw, setShowWithdraw] = useState(false);
   const [withdrawAmount, setWithdrawAmount] = useState("");
+  const [paymentAccountId, setPaymentAccountId] = useState("");
 
-  const paidTransactions = transactions.filter(
-    (transaction) => transaction.status === "Paid"
-  );
+  const [withdrawLoading, setWithdrawLoading] = useState(false);
+  const [withdrawError, setWithdrawError] = useState("");
+  const [withdrawSuccess, setWithdrawSuccess] = useState("");
 
-  const pendingTransactions = transactions.filter(
-    (transaction) => transaction.status === "Pending"
-  );
+  async function loadEarnings() {
+    try {
+      setLoading(true);
+      setError("");
 
-  const requestWithdrawal = () => {
-    if (!withdrawAmount) return;
+      const [
+        earningsResponse,
+        withdrawalsResponse,
+        paymentAccountsResponse,
+      ] = await Promise.all([
+        fetch("/api/worker/earnings"),
+        fetch("/api/worker/withdrawals"),
+        fetch("/api/worker/payment-accounts"),
+      ]);
 
-    alert(
-      `Withdrawal request of $${withdrawAmount} has been submitted for review.`
+      const earningsJson = await earningsResponse.json();
+      const withdrawalsJson = await withdrawalsResponse.json();
+      const paymentAccountsJson =
+        await paymentAccountsResponse.json();
+
+      if (!earningsResponse.ok) {
+        throw new Error(
+          earningsJson.error || "Unable to load earnings."
+        );
+      }
+
+      if (!withdrawalsResponse.ok) {
+        throw new Error(
+          withdrawalsJson.error || "Unable to load withdrawals."
+        );
+      }
+
+      if (!paymentAccountsResponse.ok) {
+        throw new Error(
+          paymentAccountsJson.error ||
+            "Unable to load payment accounts."
+        );
+      }
+
+      setData(earningsJson as EarningsResponse);
+
+      setWithdrawals(
+        (withdrawalsJson as WithdrawalsResponse).withdrawals || []
+      );
+
+      const accounts =
+        (paymentAccountsJson as PaymentAccountsResponse).accounts || [];
+
+      setPaymentAccounts(accounts);
+
+      const defaultAccount =
+        accounts.find(
+          (account) => account.status === "ACTIVE" && account.isDefault
+        ) ||
+        accounts.find(
+          (account) => account.status === "ACTIVE"
+        );
+
+      setPaymentAccountId((current) =>
+        current ||
+        defaultAccount?.id ||
+        ""
+      );
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : "Unable to load earnings."
+      );
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    loadEarnings();
+  }, []);
+
+  const balance = data?.balance ?? {
+    available: "0.00",
+    pending: "0.00",
+    paidOut: "0.00",
+    totalEarned: "0.00",
+  };
+
+  const earnings = data?.earnings ?? [];
+
+  const withdrawableBalance = useMemo(() => {
+    const pendingWithdrawals = withdrawals
+      .filter(
+        (withdrawal) =>
+          withdrawal.status === "PENDING" ||
+          withdrawal.status === "PROCESSING"
+      )
+      .reduce(
+        (total, withdrawal) => total + Number(withdrawal.amount),
+        0
+      );
+
+    return Math.max(
+      Number(balance.available) - pendingWithdrawals,
+      0
+    );
+  }, [balance.available, withdrawals]);
+
+  async function requestWithdrawal() {
+    setWithdrawError("");
+    setWithdrawSuccess("");
+
+    const amount = Number(withdrawAmount);
+
+    if (!Number.isFinite(amount) || amount <= 0) {
+      setWithdrawError("Enter a valid withdrawal amount.");
+      return;
+    }
+
+    if (amount < 10) {
+      setWithdrawError(
+        "The minimum withdrawal amount is $10.00."
+      );
+      return;
+    }
+
+    if (!paymentAccountId) {
+      setWithdrawError(
+        "Please select a payment account before withdrawing."
+      );
+      return;
+    }
+
+    const selectedAccount = paymentAccounts.find(
+      (account) => account.id === paymentAccountId
     );
 
-    setWithdrawAmount("");
-    setShowWithdraw(false);
-  };
+    if (!selectedAccount || selectedAccount.status !== "ACTIVE") {
+      setWithdrawError(
+        "The selected payment account is unavailable."
+      );
+      return;
+    }
+
+    if (amount > withdrawableBalance) {
+      setWithdrawError(
+        "The withdrawal amount exceeds your available balance."
+      );
+      return;
+    }
+
+    try {
+      setWithdrawLoading(true);
+
+      const response = await fetch("/api/worker/withdrawals", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          amount,
+          paymentAccountId,
+        }),
+      });
+
+      const result = await response.json();
+
+      if (!response.ok) {
+        throw new Error(
+          result.error || "Unable to submit withdrawal."
+        );
+      }
+
+      setWithdrawSuccess(
+        "Withdrawal request submitted successfully."
+      );
+
+      setWithdrawAmount("");
+
+      await loadEarnings();
+
+      setTimeout(() => {
+        setShowWithdraw(false);
+        setWithdrawSuccess("");
+      }, 1200);
+    } catch (err) {
+      setWithdrawError(
+        err instanceof Error
+          ? err.message
+          : "Unable to submit withdrawal."
+      );
+    } finally {
+      setWithdrawLoading(false);
+    }
+  }
+
+  function formatDate(date: string) {
+    return new Intl.DateTimeFormat("en-US", {
+      month: "short",
+      day: "numeric",
+      year: "numeric",
+    }).format(new Date(date));
+  }
+
+  function statusLabel(status: Earning["status"]) {
+    switch (status) {
+      case "AVAILABLE":
+        return "Available";
+      case "PENDING":
+        return "Pending";
+      case "PAID":
+        return "Paid";
+      case "REVERSED":
+        return "Reversed";
+    }
+  }
+
+  function statusClass(status: Earning["status"]) {
+    switch (status) {
+      case "AVAILABLE":
+        return "text-green-400";
+      case "PENDING":
+        return "text-yellow-400";
+      case "PAID":
+        return "text-cyan-400";
+      case "REVERSED":
+        return "text-red-400";
+    }
+  }
 
   return (
     <main className="min-h-screen bg-[#07111f] text-white">
-      <div className="max-w-7xl mx-auto px-6 py-10">
+      <div className="mx-auto max-w-7xl px-6 py-10">
 
         {/* HEADER */}
-        <div className="flex flex-col lg:flex-row lg:items-end lg:justify-between gap-6">
-
+        <div className="flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
           <div>
-            <p className="text-cyan-400 text-sm font-semibold tracking-wide">
+            <p className="text-sm font-semibold tracking-wide text-cyan-400">
               WORKSPACE
             </p>
 
-            <h1 className="text-4xl md:text-5xl font-black mt-2">
+            <h1 className="mt-2 text-4xl font-black md:text-5xl">
               Earnings
             </h1>
 
-            <p className="text-gray-400 mt-3 max-w-2xl">
+            <p className="mt-3 max-w-2xl text-gray-400">
               Track your task income, pending rewards and payment history.
             </p>
           </div>
 
           <button
-            onClick={() => setShowWithdraw(true)}
-            className="px-6 py-3 rounded-xl bg-cyan-400 text-[#06101d] font-bold hover:bg-cyan-300 transition"
+            onClick={() => {
+              setWithdrawError("");
+              setWithdrawSuccess("");
+              setShowWithdraw(true);
+            }}
+            disabled={withdrawableBalance < 1}
+            className="rounded-xl bg-cyan-400 px-6 py-3 font-bold text-[#06101d] transition hover:bg-cyan-300 disabled:cursor-not-allowed disabled:opacity-40"
           >
             Withdraw Funds →
           </button>
-
         </div>
 
-        {/* BALANCE HERO */}
-        <section className="relative overflow-hidden mt-10 rounded-3xl border border-cyan-400/20 bg-gradient-to-br from-cyan-500/10 via-blue-500/10 to-purple-500/10 p-8 md:p-10">
-
-          <div className="absolute -right-20 -top-20 w-72 h-72 rounded-full bg-cyan-400/10 blur-3xl" />
-
-          <div className="relative grid lg:grid-cols-3 gap-8">
-
-            <div className="lg:col-span-2">
-
-              <p className="text-gray-400 text-sm">
-                Available balance
-              </p>
-
-              <div className="flex items-end gap-3 mt-2">
-
-                <h2 className="text-5xl md:text-6xl font-black">
-                  $36.75
-                </h2>
-
-                <span className="mb-2 px-3 py-1 rounded-full bg-green-400/10 border border-green-400/20 text-green-400 text-xs font-semibold">
-                  Available
-                </span>
-
-              </div>
-
-              <p className="text-gray-500 mt-4 max-w-lg">
-                Your available balance can be withdrawn once you meet the
-                platform's minimum withdrawal requirement.
-              </p>
-
-            </div>
-
-            <div className="lg:border-l lg:border-white/10 lg:pl-8">
-
-              <p className="text-gray-500 text-sm">
-                Next payment
-              </p>
-
-              <p className="text-3xl font-bold mt-2">
-                $18.50
-              </p>
-
-              <p className="text-yellow-400 text-sm mt-2">
-                Pending review
-              </p>
-
-            </div>
-
+        {/* ERROR */}
+        {error && (
+          <div className="mt-6 rounded-2xl border border-red-400/20 bg-red-400/10 p-4 text-sm text-red-300">
+            {error}
           </div>
+        )}
 
-        </section>
-
-        {/* STAT CARDS */}
-        <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4 mt-6">
-
-          <StatCard
-            title="Total Earned"
-            value="$101.50"
-            subtitle="All time"
-            icon="$"
-          />
-
-          <StatCard
-            title="This Month"
-            value="$101.50"
-            subtitle="August 2026"
-            icon="↗"
-          />
-
-          <StatCard
-            title="Pending"
-            value="$18.50"
-            subtitle="Awaiting approval"
-            icon="◐"
-          />
-
-          <StatCard
-            title="Paid Out"
-            value="$65.00"
-            subtitle="Previous withdrawals"
-            icon="✓"
-          />
-
-        </div>
-
-        {/* EARNINGS OVERVIEW */}
-        <section className="mt-10 rounded-3xl border border-white/10 bg-white/[0.03] p-6 md:p-8">
-
-          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-
-            <div>
-              <h2 className="text-xl font-bold">
-                Earnings overview
-              </h2>
-
-              <p className="text-gray-500 text-sm mt-1">
-                Your earnings activity over the last 7 days
-              </p>
-            </div>
-
-            <span className="text-cyan-400 text-sm font-semibold">
-              August 2026
-            </span>
-
+        {/* LOADING */}
+        {loading ? (
+          <div className="mt-10 rounded-3xl border border-white/10 bg-white/[0.03] p-10 text-center text-gray-500">
+            Loading your earnings...
           </div>
+        ) : (
+          <>
+            {/* BALANCE HERO */}
+            <section className="relative mt-10 overflow-hidden rounded-3xl border border-cyan-400/20 bg-gradient-to-br from-cyan-500/10 via-blue-500/10 to-purple-500/10 p-8 md:p-10">
+              <div className="absolute -right-20 -top-20 h-72 w-72 rounded-full bg-cyan-400/10 blur-3xl" />
 
-          <div className="mt-8 h-52 flex items-end gap-3 md:gap-6">
+              <div className="relative grid gap-8 lg:grid-cols-3">
+                <div className="lg:col-span-2">
+                  <p className="text-sm text-gray-400">
+                    Available balance
+                  </p>
 
-            {[
-              ["Mon", 35],
-              ["Tue", 52],
-              ["Wed", 42],
-              ["Thu", 68],
-              ["Fri", 48],
-              ["Sat", 82],
-              ["Sun", 62],
-            ].map(([day, height]) => (
+                  <div className="mt-2 flex items-end gap-3">
+                    <h2 className="text-5xl font-black md:text-6xl">
+                      ${balance.available}
+                    </h2>
 
-              <div
-                key={day}
-                className="flex-1 h-full flex flex-col justify-end items-center gap-3"
-              >
-
-                <div
-                  className="w-full max-w-12 rounded-t-xl bg-gradient-to-t from-cyan-500/30 to-cyan-400 transition hover:from-cyan-400/50 hover:to-cyan-300"
-                  style={{ height: `${height}%` }}
-                />
-
-                <span className="text-xs text-gray-600">
-                  {day}
-                </span>
-
-              </div>
-
-            ))}
-
-          </div>
-
-        </section>
-
-        {/* TRANSACTIONS */}
-        <section className="mt-10">
-
-          <div className="flex items-center justify-between mb-5">
-
-            <div>
-              <h2 className="text-2xl font-bold">
-                Earnings history
-              </h2>
-
-              <p className="text-gray-500 text-sm mt-1">
-                Payments generated from completed tasks
-              </p>
-            </div>
-
-            <button className="text-cyan-400 text-sm font-semibold hover:text-cyan-300">
-              View all
-            </button>
-
-          </div>
-
-          <div className="space-y-3">
-
-            {transactions.map((transaction) => (
-
-              <div
-                key={transaction.id}
-                className="rounded-2xl border border-white/10 bg-white/[0.03] p-5 hover:bg-white/[0.05] transition"
-              >
-
-                <div className="flex flex-col lg:flex-row lg:items-center gap-5">
-
-                  <div className="w-11 h-11 rounded-xl bg-cyan-400/10 text-cyan-400 flex items-center justify-center font-bold">
-                    $
-                  </div>
-
-                  <div className="flex-1">
-
-                    <h3 className="font-semibold">
-                      {transaction.task}
-                    </h3>
-
-                    <p className="text-gray-500 text-sm mt-1">
-                      {transaction.project}
-                    </p>
-
-                  </div>
-
-                  <div className="text-sm text-gray-500">
-                    {transaction.date}
-                  </div>
-
-                  <div className="lg:w-28">
-
-                    <p className="text-lg font-bold">
-                      {transaction.amount}
-                    </p>
-
-                    <span
-                      className={`text-xs ${
-                        transaction.status === "Paid"
-                          ? "text-green-400"
-                          : "text-yellow-400"
-                      }`}
-                    >
-                      {transaction.status}
+                    <span className="mb-2 rounded-full border border-green-400/20 bg-green-400/10 px-3 py-1 text-xs font-semibold text-green-400">
+                      Available
                     </span>
-
                   </div>
 
+                  <p className="mt-4 max-w-lg text-gray-500">
+                    Funds become available after your submitted work is
+                    approved by the review team.
+                  </p>
                 </div>
 
+                <div className="lg:border-l lg:border-white/10 lg:pl-8">
+                  <p className="text-sm text-gray-500">
+                    Pending earnings
+                  </p>
+
+                  <p className="mt-2 text-3xl font-bold">
+                    ${balance.pending}
+                  </p>
+
+                  <p className="mt-2 text-sm text-yellow-400">
+                    Awaiting review
+                  </p>
+                </div>
+              </div>
+            </section>
+
+            {/* STAT CARDS */}
+            <div className="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+              <StatCard
+                title="Total Earned"
+                value={`$${balance.totalEarned}`}
+                subtitle="All time"
+                icon="$"
+              />
+
+              <StatCard
+                title="This Month"
+                value={`$${balance.totalEarned}`}
+                subtitle="Current earnings"
+                icon="↗"
+              />
+
+              <StatCard
+                title="Pending"
+                value={`$${balance.pending}`}
+                subtitle="Awaiting approval"
+                icon="◐"
+              />
+
+              <StatCard
+                title="Paid Out"
+                value={`$${balance.paidOut}`}
+                subtitle="Completed payments"
+                icon="✓"
+              />
+            </div>
+
+            {/* WITHDRAWAL HISTORY */}
+            {withdrawals.length > 0 && (
+              <section className="mt-10">
+                <div className="mb-5">
+                  <h2 className="text-2xl font-bold">
+                    Withdrawal history
+                  </h2>
+
+                  <p className="mt-1 text-sm text-gray-500">
+                    Track your requested and completed withdrawals.
+                  </p>
+                </div>
+
+                <div className="space-y-3">
+                  {withdrawals.map((withdrawal) => (
+                    <div
+                      key={withdrawal.id}
+                      className="rounded-2xl border border-white/10 bg-white/[0.03] p-5"
+                    >
+                      <div className="flex flex-col gap-4 sm:flex-row sm:items-center">
+                        <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-purple-400/10 font-bold text-purple-400">
+                          $
+                        </div>
+
+                        <div className="flex-1">
+                          <p className="font-semibold">
+                            Withdrawal request
+                          </p>
+
+                          <p className="mt-1 text-sm text-gray-500">
+                            {withdrawal.paymentMethod || "Payment method"}{" "}
+                            · {formatDate(withdrawal.requestedAt)}
+                          </p>
+                        </div>
+
+                        <div className="text-left sm:text-right">
+                          <p className="text-lg font-bold">
+                            ${withdrawal.amount}
+                          </p>
+
+                          <p
+                            className={`text-xs ${
+                              withdrawal.status === "PAID"
+                                ? "text-green-400"
+                                : withdrawal.status === "FAILED"
+                                  ? "text-red-400"
+                                  : "text-yellow-400"
+                            }`}
+                          >
+                            {withdrawal.status}
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </section>
+            )}
+
+            {/* EARNINGS HISTORY */}
+            <section className="mt-10">
+              <div className="mb-5">
+                <h2 className="text-2xl font-bold">
+                  Earnings history
+                </h2>
+
+                <p className="mt-1 text-sm text-gray-500">
+                  Payments generated from completed tasks.
+                </p>
               </div>
 
-            ))}
+              {earnings.length === 0 ? (
+                <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-10 text-center">
+                  <p className="text-lg font-semibold">
+                    No earnings yet
+                  </p>
 
-          </div>
+                  <p className="mt-2 text-sm text-gray-500">
+                    Complete and pass your first task review to start earning.
+                  </p>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {earnings.map((earning) => (
+                    <div
+                      key={earning.id}
+                      className="rounded-2xl border border-white/10 bg-white/[0.03] p-5 transition hover:bg-white/[0.05]"
+                    >
+                      <div className="flex flex-col gap-5 lg:flex-row lg:items-center">
+                        <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-cyan-400/10 font-bold text-cyan-400">
+                          $
+                        </div>
 
-        </section>
+                        <div className="flex-1">
+                          <h3 className="font-semibold">
+                            {earning.task.title}
+                          </h3>
 
-        {/* PAYMENT INFO */}
-        <section className="mt-10 grid md:grid-cols-2 gap-6">
+                          <p className="mt-1 text-sm text-gray-500">
+                            {earning.project.title}
+                          </p>
 
-          <div className="rounded-3xl border border-white/10 bg-white/[0.03] p-7">
+                          <p className="mt-1 text-xs text-gray-600">
+                            {earning.task.category}
+                          </p>
+                        </div>
 
-            <div className="w-11 h-11 rounded-xl bg-purple-400/10 text-purple-400 flex items-center justify-center">
-              ◈
-            </div>
+                        <div className="text-sm text-gray-500">
+                          {formatDate(earning.createdAt)}
+                        </div>
 
-            <h3 className="text-xl font-bold mt-5">
-              Payment method
-            </h3>
+                        <div className="lg:w-32">
+                          <p className="text-lg font-bold">
+                            ${earning.amount}
+                          </p>
 
-            <p className="text-gray-500 text-sm mt-2">
-              Choose where you want to receive your approved earnings.
-            </p>
-
-            <button className="mt-5 text-cyan-400 text-sm font-semibold hover:text-cyan-300">
-              Manage payment method →
-            </button>
-
-          </div>
-
-          <div className="rounded-3xl border border-white/10 bg-white/[0.03] p-7">
-
-            <div className="w-11 h-11 rounded-xl bg-cyan-400/10 text-cyan-400 flex items-center justify-center">
-              ?
-            </div>
-
-            <h3 className="text-xl font-bold mt-5">
-              Need help?
-            </h3>
-
-            <p className="text-gray-500 text-sm mt-2">
-              Learn how task rewards, reviews and withdrawals work.
-            </p>
-
-            <button className="mt-5 text-cyan-400 text-sm font-semibold hover:text-cyan-300">
-              Visit payment help →
-            </button>
-
-          </div>
-
-        </section>
-
+                          <span
+                            className={`text-xs ${statusClass(
+                              earning.status
+                            )}`}
+                          >
+                            {statusLabel(earning.status)}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </section>
+          </>
+        )}
       </div>
 
       {/* WITHDRAW MODAL */}
       {showWithdraw && (
-
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm px-6">
-
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-6 backdrop-blur-sm">
           <div className="w-full max-w-md rounded-3xl border border-white/10 bg-[#0b1728] p-7 shadow-2xl">
 
             <div className="flex items-start justify-between">
-
               <div>
-                <p className="text-cyan-400 text-sm font-semibold">
+                <p className="text-sm font-semibold text-cyan-400">
                   PAYMENTS
                 </p>
 
-                <h2 className="text-2xl font-bold mt-1">
+                <h2 className="mt-1 text-2xl font-bold">
                   Withdraw funds
                 </h2>
               </div>
 
               <button
                 onClick={() => setShowWithdraw(false)}
-                className="text-gray-500 hover:text-white text-xl"
+                className="text-xl text-gray-500 hover:text-white"
               >
                 ×
               </button>
-
             </div>
 
-            <div className="mt-6 rounded-2xl bg-white/[0.04] border border-white/10 p-5">
-
-              <p className="text-gray-500 text-sm">
-                Available balance
+            <div className="mt-6 rounded-2xl border border-white/10 bg-white/[0.04] p-5">
+              <p className="text-sm text-gray-500">
+                Withdrawable balance
               </p>
 
-              <p className="text-3xl font-bold mt-1">
-                $36.75
+              <p className="mt-1 text-3xl font-bold">
+                ${withdrawableBalance.toFixed(2)}
               </p>
-
             </div>
 
-            <label className="block mt-6">
+            {withdrawError && (
+              <div className="mt-4 rounded-xl border border-red-400/20 bg-red-400/10 p-3 text-sm text-red-300">
+                {withdrawError}
+              </div>
+            )}
 
+            {withdrawSuccess && (
+              <div className="mt-4 rounded-xl border border-green-400/20 bg-green-400/10 p-3 text-sm text-green-300">
+                {withdrawSuccess}
+              </div>
+            )}
+
+            <label className="mt-6 block">
+              <span className="text-sm text-gray-400">
+                Payment account
+              </span>
+
+              {paymentAccounts.length === 0 ? (
+                <div className="mt-2 rounded-xl border border-yellow-400/20 bg-yellow-400/10 p-4 text-sm text-yellow-300">
+                  No payment account is available. Please add a
+                  payment account in Settings before requesting a
+                  withdrawal.
+                </div>
+              ) : (
+                <select
+                  value={paymentAccountId}
+                  onChange={(e) =>
+                    setPaymentAccountId(e.target.value)
+                  }
+                  className="mt-2 w-full rounded-xl border border-white/10 bg-[#101d30] px-4 py-3 text-white outline-none focus:border-cyan-400/40"
+                >
+                  <option value="">
+                    Select payment account
+                  </option>
+
+                  {paymentAccounts
+                    .filter(
+                      (account) => account.status === "ACTIVE"
+                    )
+                    .map((account) => (
+                      <option
+                        key={account.id}
+                        value={account.id}
+                      >
+                        {account.type === "MPESA"
+                          ? `M-Pesa • ${account.phoneNumber ?? ""}`
+                          : `Bank • ${account.bankName ?? ""} • ${account.accountNumber ?? ""}`}
+                        {account.isDefault ? " (Default)" : ""}
+                      </option>
+                    ))}
+                </select>
+              )}
+            </label>
+
+            <label className="mt-5 block">
               <span className="text-sm text-gray-400">
                 Withdrawal amount
               </span>
 
               <div className="relative mt-2">
-
                 <span className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-500">
                   $
                 </span>
@@ -429,45 +666,41 @@ export default function EarningsPage() {
                 <input
                   type="number"
                   min="1"
+                  step="0.01"
                   placeholder="0.00"
                   value={withdrawAmount}
                   onChange={(e) => setWithdrawAmount(e.target.value)}
                   className="w-full rounded-xl border border-white/10 bg-white/[0.04] py-3 pl-9 pr-4 outline-none focus:border-cyan-400/40"
                 />
-
               </div>
-
             </label>
 
-            <p className="text-xs text-gray-600 mt-3">
-              Minimum withdrawal requirements will be applied when real
-              payment processing is connected.
+            <p className="mt-3 text-xs text-gray-600">
+              Minimum withdrawal: $10.00
             </p>
 
-            <div className="flex gap-3 mt-7">
-
+            <div className="mt-7 flex gap-3">
               <button
                 onClick={() => setShowWithdraw(false)}
-                className="flex-1 px-5 py-3 rounded-xl border border-white/10 text-gray-400 hover:text-white hover:bg-white/[0.05] transition"
+                disabled={withdrawLoading}
+                className="flex-1 rounded-xl border border-white/10 px-5 py-3 text-gray-400 transition hover:bg-white/[0.05] hover:text-white disabled:opacity-40"
               >
                 Cancel
               </button>
 
               <button
                 onClick={requestWithdrawal}
-                className="flex-1 px-5 py-3 rounded-xl bg-cyan-400 text-[#06101d] font-bold hover:bg-cyan-300 transition"
+                disabled={withdrawLoading}
+                className="flex-1 rounded-xl bg-cyan-400 px-5 py-3 font-bold text-[#06101d] transition hover:bg-cyan-300 disabled:cursor-not-allowed disabled:opacity-40"
               >
-                Request Withdrawal
+                {withdrawLoading
+                  ? "Submitting..."
+                  : "Request Withdrawal"}
               </button>
-
             </div>
-
           </div>
-
         </div>
-
       )}
-
     </main>
   );
 }
@@ -485,27 +718,23 @@ function StatCard({
 }) {
   return (
     <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-5">
-
       <div className="flex items-center justify-between">
-
-        <p className="text-gray-500 text-sm">
+        <p className="text-sm text-gray-500">
           {title}
         </p>
 
-        <span className="w-9 h-9 rounded-xl bg-cyan-400/10 text-cyan-400 flex items-center justify-center">
+        <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-cyan-400/10 text-cyan-400">
           {icon}
         </span>
-
       </div>
 
-      <p className="text-3xl font-bold mt-4">
+      <p className="mt-4 text-3xl font-bold">
         {value}
       </p>
 
-      <p className="text-gray-600 text-xs mt-2">
+      <p className="mt-2 text-xs text-gray-600">
         {subtitle}
       </p>
-
     </div>
   );
 }
