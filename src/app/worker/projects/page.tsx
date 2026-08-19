@@ -1,82 +1,39 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 
-const projects = [
-  {
-    title: "AI Response Evaluation",
-    client: "AI Research Project",
-    category: "AI Training",
-    description:
-      "Evaluate AI-generated responses for accuracy, relevance, reasoning and overall quality.",
-    pay: "$18–$25/hr",
-    tasks: "120 tasks available",
-    difficulty: "Intermediate",
-    skills: ["AI Evaluation", "English", "Critical Thinking"],
-    recommended: true,
-  },
-  {
-    title: "Financial Reasoning Review",
-    client: "Finance AI Research",
-    category: "Finance",
-    description:
-      "Review AI answers to financial questions and evaluate calculations, assumptions and reasoning.",
-    pay: "$22–$35/hr",
-    tasks: "68 tasks available",
-    difficulty: "Advanced",
-    skills: ["Finance", "Accounting", "Economics"],
-    recommended: true,
-  },
-  {
-    title: "Data Quality Assessment",
-    client: "Data Intelligence",
-    category: "Data",
-    description:
-      "Review datasets and identify errors, inconsistencies and quality issues.",
-    pay: "$12–$18/hr",
-    tasks: "240 tasks available",
-    difficulty: "Beginner",
-    skills: ["Data Review", "Attention to Detail"],
-    recommended: false,
-  },
-  {
-    title: "Business Research Project",
-    client: "Market Intelligence",
-    category: "Research",
-    description:
-      "Research companies, markets and industries and organize findings into structured datasets.",
-    pay: "$15–$24/hr",
-    tasks: "94 tasks available",
-    difficulty: "Intermediate",
-    skills: ["Research", "Business", "Analysis"],
-    recommended: false,
-  },
-  {
-    title: "AI Writing Quality Review",
-    client: "Language AI",
-    category: "AI Training",
-    description:
-      "Review AI-generated content for clarity, grammar, accuracy and usefulness.",
-    pay: "$14–$21/hr",
-    tasks: "185 tasks available",
-    difficulty: "Intermediate",
-    skills: ["Writing", "English", "AI Evaluation"],
-    recommended: false,
-  },
-  {
-    title: "Accounting Question Generation",
-    client: "Finance Dataset Project",
-    category: "Finance",
-    description:
-      "Create high-quality accounting and finance questions for training AI systems.",
-    pay: "$20–$30/hr",
-    tasks: "52 tasks available",
-    difficulty: "Advanced",
-    skills: ["Accounting", "Finance", "GAAP"],
-    recommended: false,
-  },
-];
+type Project = {
+  id: string;
+  title: string;
+  client: {
+    id: string;
+    name: string;
+  };
+  category: string;
+  description: string;
+  budget: string;
+  status: string;
+  deadline: string | null;
+  tasks: {
+    total: number;
+    available: number;
+  };
+  pay: {
+    minimum: string;
+    maximum: string;
+    currency: string;
+  };
+  taskList: {
+    id: string;
+    title: string;
+    description: string;
+    category: string;
+    reward: string;
+    deadline: string | null;
+  }[];
+};
 
 const categories = [
   "All",
@@ -87,19 +44,58 @@ const categories = [
 ];
 
 export default function ProjectsPage() {
+  const [projects, setProjects] = useState<Project[]>([]);
   const [category, setCategory] = useState("All");
   const [search, setSearch] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    async function loadProjects() {
+      try {
+        setLoading(true);
+        setError("");
+
+        const response = await fetch("/api/worker/projects", {
+          cache: "no-store",
+        });
+
+        const data = await response.json();
+
+        if (!response.ok) {
+          throw new Error(
+            data.error || "Unable to load projects."
+          );
+        }
+
+        setProjects(data.projects || []);
+      } catch (err) {
+        console.error("Load projects error:", err);
+
+        setError(
+          err instanceof Error
+            ? err.message
+            : "Unable to load projects."
+        );
+      } finally {
+        setLoading(false);
+      }
+    }
+
+    loadProjects();
+  }, []);
 
   const filteredProjects = projects.filter((project) => {
     const matchesCategory =
       category === "All" || project.category === category;
 
     const searchText =
-      `${project.title} ${project.description} ${project.category} ${project.skills.join(
-        " "
-      )}`.toLowerCase();
+      `${project.title} ${project.description} ${project.category} ${project.client.name}`
+        .toLowerCase();
 
-    const matchesSearch = searchText.includes(search.toLowerCase());
+    const matchesSearch = searchText.includes(
+      search.toLowerCase()
+    );
 
     return matchesCategory && matchesSearch;
   });
@@ -130,16 +126,22 @@ export default function ProjectsPage() {
 
           <div className="flex gap-4">
             <div className="rounded-2xl border border-white/10 bg-white/[0.04] px-5 py-4">
-              <p className="text-xs text-gray-500">Available Projects</p>
+              <p className="text-xs text-gray-500">
+                Available Projects
+              </p>
+
               <p className="text-2xl font-bold mt-1">
-                {projects.length}
+                {loading ? "—" : projects.length}
               </p>
             </div>
 
             <div className="rounded-2xl border border-cyan-400/20 bg-cyan-400/5 px-5 py-4">
-              <p className="text-xs text-gray-500">Your Match</p>
+              <p className="text-xs text-gray-500">
+                Your Match
+              </p>
+
               <p className="text-2xl font-bold text-cyan-400 mt-1">
-                87%
+                —
               </p>
             </div>
           </div>
@@ -157,7 +159,7 @@ export default function ProjectsPage() {
               <input
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
-                placeholder="Search projects, skills or categories..."
+                placeholder="Search projects, clients or categories..."
                 className="w-full rounded-xl border border-white/10 bg-black/20 py-3 pl-11 pr-4 text-sm outline-none focus:border-cyan-400/50 placeholder:text-gray-600"
               />
             </div>
@@ -181,77 +183,125 @@ export default function ProjectsPage() {
           </div>
         </div>
 
-        {/* RECOMMENDED */}
-        {category === "All" && search === "" && (
-          <section className="mt-10">
-            <div className="flex items-center justify-between mb-6">
-              <div>
-                <h2 className="text-2xl font-bold">
-                  Recommended for You
-                </h2>
-
-                <p className="text-gray-500 mt-1">
-                  Projects selected based on your skills and assessments.
-                </p>
-              </div>
-
-              <span className="text-cyan-400 text-sm">
-                2 matches
-              </span>
+        {/* LOADING */}
+        {loading && (
+          <div className="mt-10 rounded-3xl border border-white/10 bg-white/[0.04] p-16 text-center">
+            <div className="text-4xl animate-pulse">
+              ⏳
             </div>
 
-            <div className="grid lg:grid-cols-2 gap-6">
-              {projects
-                .filter((project) => project.recommended)
-                .map((project) => (
-                  <ProjectCard
-                    key={project.title}
-                    project={project}
-                  />
-                ))}
-            </div>
-          </section>
+            <h3 className="text-xl font-bold mt-5">
+              Loading projects...
+            </h3>
+
+            <p className="text-gray-500 mt-2">
+              Finding projects currently available to workers.
+            </p>
+          </div>
         )}
 
-        {/* ALL PROJECTS */}
-        <section className="mt-12">
-          <div className="flex items-center justify-between mb-6">
-            <div>
-              <h2 className="text-2xl font-bold">
-                {category === "All"
-                  ? "All Projects"
-                  : `${category} Projects`}
-              </h2>
-
-              <p className="text-gray-500 mt-1">
-                {filteredProjects.length} projects found
-              </p>
+        {/* ERROR */}
+        {!loading && error && (
+          <div className="mt-10 rounded-3xl border border-red-400/20 bg-red-400/5 p-10 text-center">
+            <div className="text-4xl">
+              ⚠️
             </div>
+
+            <h3 className="text-xl font-bold mt-5">
+              Unable to load projects
+            </h3>
+
+            <p className="text-gray-500 mt-2">
+              {error}
+            </p>
+
+            <button
+              onClick={() => window.location.reload()}
+              className="mt-6 px-5 py-3 rounded-xl bg-white text-black font-semibold hover:bg-gray-200 transition"
+            >
+              Try Again
+            </button>
           </div>
+        )}
 
-          {filteredProjects.length === 0 ? (
-            <div className="rounded-3xl border border-white/10 bg-white/[0.04] p-16 text-center">
-              <div className="text-4xl">🔎</div>
+        {/* PROJECT CONTENT */}
+        {!loading && !error && (
+          <>
+            {/* RECOMMENDED */}
+            {category === "All" && search === "" && projects.length > 0 && (
+              <section className="mt-10">
+                <div className="flex items-center justify-between mb-6">
+                  <div>
+                    <h2 className="text-2xl font-bold">
+                      Recommended for You
+                    </h2>
 
-              <h3 className="text-xl font-bold mt-5">
-                No projects found
-              </h3>
+                    <p className="text-gray-500 mt-1">
+                      Projects currently available on ROFRAAI.
+                    </p>
+                  </div>
 
-              <p className="text-gray-500 mt-2">
-                Try another search term or category.
-              </p>
-            </div>
-          ) : (
-            <div className="grid lg:grid-cols-2 gap-6">
-              {filteredProjects.map((project) => (
-                <ProjectCard
-                  key={project.title}
-                  project={project}
-                />
-              ))}
-            </div>
-          )}
-        </section>
+                  <span className="text-cyan-400 text-sm">
+                    {Math.min(projects.length, 2)} matches
+                  </span>
+                </div>
+
+                <div className="grid lg:grid-cols-2 gap-6">
+                  {projects
+                    .slice(0, 2)
+                    .map((project) => (
+                      <ProjectCard
+                        key={project.id}
+                        project={project}
+                      />
+                    ))}
+                </div>
+              </section>
+            )}
+
+            {/* ALL PROJECTS */}
+            <section className="mt-12">
+              <div className="flex items-center justify-between mb-6">
+                <div>
+                  <h2 className="text-2xl font-bold">
+                    {category === "All"
+                      ? "All Projects"
+                      : `${category} Projects`}
+                  </h2>
+
+                  <p className="text-gray-500 mt-1">
+                    {filteredProjects.length} projects found
+                  </p>
+                </div>
+              </div>
+
+              {filteredProjects.length === 0 ? (
+                <div className="rounded-3xl border border-white/10 bg-white/[0.04] p-16 text-center">
+                  <div className="text-4xl">
+                    🔎
+                  </div>
+
+                  <h3 className="text-xl font-bold mt-5">
+                    No projects found
+                  </h3>
+
+                  <p className="text-gray-500 mt-2">
+                    Try another search term or category.
+                  </p>
+                </div>
+              ) : (
+                <div className="grid lg:grid-cols-2 gap-6">
+                  {filteredProjects.map((project) => (
+                    <ProjectCard
+                      key={project.id}
+                      project={project}
+                    />
+                  ))}
+                </div>
+              )}
+            </section>
+          </>
+        )}
 
         {/* INFO */}
         <section className="mt-12 rounded-3xl border border-purple-400/20 bg-purple-400/5 p-8">
@@ -288,8 +338,18 @@ export default function ProjectsPage() {
 function ProjectCard({
   project,
 }: {
-  project: (typeof projects)[number];
+  project: Project;
 }) {
+    const router = useRouter();
+
+  const minimum = Number(project.pay.minimum);
+  const maximum = Number(project.pay.maximum);
+
+  const pay =
+    minimum === maximum
+      ? `$${minimum.toFixed(2)}`
+      : `$${minimum.toFixed(2)}–$${maximum.toFixed(2)}`;
+
   return (
     <div className="group rounded-3xl border border-white/10 bg-white/[0.04] p-7 hover:bg-white/[0.07] hover:border-cyan-400/30 transition">
 
@@ -305,15 +365,13 @@ function ProjectCard({
           </h3>
 
           <p className="text-sm text-gray-500 mt-1">
-            {project.client}
+            {project.client.name}
           </p>
         </div>
 
-        {project.recommended && (
-          <span className="px-3 py-1 rounded-full bg-purple-400/10 border border-purple-400/20 text-purple-400 text-xs whitespace-nowrap">
-            Recommended
-          </span>
-        )}
+        <span className="px-3 py-1 rounded-full bg-purple-400/10 border border-purple-400/20 text-purple-400 text-xs whitespace-nowrap">
+          Open
+        </span>
       </div>
 
       {/* DESCRIPTION */}
@@ -325,11 +383,11 @@ function ProjectCard({
       <div className="grid grid-cols-2 gap-3 mt-6">
         <div className="rounded-xl bg-black/20 border border-white/10 p-4">
           <p className="text-xs text-gray-500">
-            Estimated Pay
+            Task Reward
           </p>
 
           <p className="text-cyan-400 font-bold mt-1">
-            {project.pay}
+            {pay}
           </p>
         </div>
 
@@ -339,33 +397,41 @@ function ProjectCard({
           </p>
 
           <p className="text-white font-semibold mt-1">
-            {project.tasks}
+            {project.tasks.available} tasks
           </p>
         </div>
       </div>
 
-      {/* SKILLS */}
+      {/* PROJECT DETAILS */}
       <div className="flex flex-wrap gap-2 mt-5">
-        {project.skills.map((skill) => (
-          <span
-            key={skill}
-            className="px-3 py-1 rounded-lg bg-white/5 text-gray-400 text-xs"
-          >
-            {skill}
+        <span className="px-3 py-1 rounded-lg bg-white/5 text-gray-400 text-xs">
+          {project.tasks.total} total tasks
+        </span>
+
+        <span className="px-3 py-1 rounded-lg bg-white/5 text-gray-400 text-xs">
+          {project.category}
+        </span>
+
+        {project.deadline && (
+          <span className="px-3 py-1 rounded-lg bg-white/5 text-gray-400 text-xs">
+            Deadline{" "}
+            {new Date(project.deadline).toLocaleDateString()}
           </span>
-        ))}
+        )}
       </div>
 
       {/* FOOTER */}
       <div className="flex items-center justify-between mt-7 pt-5 border-t border-white/10">
         <span className="text-xs text-gray-500">
-          Difficulty:{" "}
-          <span className="text-gray-300">
-            {project.difficulty}
-          </span>
+          {project.tasks.available} available tasks
         </span>
 
-        <button className="px-5 py-2.5 rounded-xl bg-cyan-400 text-[#06101d] font-bold text-sm hover:bg-cyan-300 transition">
+        <button
+          onClick={() => {
+  router.push(`/worker/projects/${project.id}`);
+          }}
+          className="px-5 py-2.5 rounded-xl bg-cyan-400 text-[#06101d] font-bold text-sm hover:bg-cyan-300 transition"
+        >
           View Project →
         </button>
       </div>
