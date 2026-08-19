@@ -170,7 +170,7 @@ export default function PricingPage() {
 
               <div className="my-8 border-t border-white/10" />
 
-              <p className="text-sm font-semibold">What's included</p>
+              <p className="text-sm font-semibold">What&apos;s included</p>
 
               <div className="mt-5 space-y-4">
                 {plan.features.map((feature) => (
@@ -198,7 +198,7 @@ export default function PricingPage() {
               </p>
 
               <h2 className="mt-3 text-3xl font-bold md:text-4xl">
-                You don't pay to find work.
+                You don&apos;t pay to find work.
               </h2>
 
               <p className="mt-5 leading-relaxed text-gray-400">

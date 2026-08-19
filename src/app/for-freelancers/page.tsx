@@ -260,7 +260,7 @@ export default function ForFreelancers() {
           </h2>
 
           <p className="mt-5 text-lg text-gray-400">
-            We've designed ROFRAAI to make finding specialized work simple.
+            We&apos;ve designed ROFRAAI to make finding specialized work simple.
           </p>
         </div>
 

@@ -1,5 +1,7 @@
 "use client";
 
+import Link from "next/link";
+
 import { useState } from "react";
 
 export default function Home() {
@@ -11,7 +13,7 @@ export default function Home() {
       <nav className="sticky top-0 z-50 border-b border-white/10 bg-[#07111f]/90 backdrop-blur-xl">
         <div className="mx-auto flex max-w-7xl items-center justify-between px-6 py-4">
           {/* LOGO */}
-          <a href="/" className="flex items-center gap-3">
+          <Link href="/" className="flex items-center gap-3">
             <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-cyan-400 to-blue-600 text-xl font-black">
               R
             </div>
@@ -19,54 +21,54 @@ export default function Home() {
             <span className="text-2xl font-bold tracking-tight">
               ROFRA<span className="text-cyan-400">AI</span>
             </span>
-          </a>
+          </Link>
 
           {/* DESKTOP NAVIGATION */}
           <div className="hidden items-center gap-8 text-sm text-gray-300 md:flex">
-            <a
+            <Link
               href="/how-it-works"
               className="transition hover:text-white"
             >
               How It Works
-            </a>
+            </Link>
 
-            <a
+            <Link
               href="/freelancers"
               className="transition hover:text-white"
             >
               For Freelancers
-            </a>
+            </Link>
 
-            <a
+            <Link
               href="/clients"
               className="transition hover:text-white"
             >
               For Clients
-            </a>
+            </Link>
 
-            <a
+            <Link
               href="/pricing"
               className="transition hover:text-white"
             >
               Pricing
-            </a>
+            </Link>
           </div>
 
           {/* DESKTOP ACTIONS */}
           <div className="hidden items-center gap-3 md:flex">
-            <a
+            <Link
               href="/login"
               className="rounded-xl border border-white/15 px-5 py-2.5 transition hover:bg-white/10"
             >
               Login
-            </a>
+            </Link>
 
-            <a
+            <Link
               href="/register"
               className="rounded-xl bg-cyan-400 px-5 py-2.5 font-semibold text-[#06101d] transition hover:bg-cyan-300"
             >
               Get Started
-            </a>
+            </Link>
           </div>
 
           {/* MOBILE MENU BUTTON */}
@@ -83,22 +85,22 @@ export default function Home() {
         {menuOpen && (
           <div className="border-t border-white/10 px-6 pb-6 pt-5 md:hidden">
             <div className="flex flex-col gap-5 text-gray-300">
-              <a href="/how-it-works">How It Works</a>
+              <Link href="/how-it-works">How It Works</Link>
 
-              <a href="/freelancers">For Freelancers</a>
+              <Link href="/freelancers">For Freelancers</Link>
 
-              <a href="/clients">For Clients</a>
+              <Link href="/clients">For Clients</Link>
 
-              <a href="/pricing">Pricing</a>
+              <Link href="/pricing">Pricing</Link>
 
-              <a href="/login">Login</a>
+              <Link href="/login">Login</Link>
 
-              <a
+              <Link
                 href="/register"
                 className="font-semibold text-cyan-400"
               >
                 Get Started
-              </a>
+              </Link>
             </div>
           </div>
         )}
@@ -130,19 +132,18 @@ export default function Home() {
             </p>
 
             <div className="mt-9 flex flex-col gap-4 sm:flex-row">
-              <a
+              <Link
                 href="/register"
                 className="rounded-2xl bg-cyan-400 px-7 py-4 text-center font-bold text-[#06101d] shadow-lg shadow-cyan-400/20 transition hover:bg-cyan-300"
               >
                 Start Working →
-              </a>
-
-              <a
+              </Link>   
+              <Link
                 href="/clients"
                 className="rounded-2xl border border-white/15 bg-white/5 px-7 py-4 text-center font-semibold transition hover:bg-white/10"
               >
                 Hire AI Talent
-              </a>
+              </Link>
             </div>
 
             <div className="mt-10 flex flex-wrap gap-8 text-sm text-gray-400">
@@ -218,12 +219,12 @@ export default function Home() {
                     </p>
                   </div>
 
-                  <a
+                  <Link
                     href="/register"
                     className="text-sm text-cyan-400 hover:text-cyan-300"
                   >
                     View all
-                  </a>
+                  </Link>
                 </div>
 
                 <div className="space-y-3">
@@ -311,12 +312,12 @@ export default function Home() {
         </div>
 
         <div className="mt-10 text-center">
-          <a
+          <Link
             href="/how-it-works"
             className="font-semibold text-cyan-400 hover:text-cyan-300"
           >
             Learn how ROFRAAI works →
-          </a>
+          </Link>
         </div>
       </section>
 
@@ -339,12 +340,12 @@ export default function Home() {
             business projects.
           </p>
 
-          <a
+          <Link
             href="/freelancers"
             className="mt-7 inline-block rounded-xl bg-white px-6 py-3 font-semibold text-black transition hover:bg-gray-200"
           >
             Become a Freelancer
-          </a>
+          </Link>
         </div>
 
         {/* CLIENTS */}
@@ -364,12 +365,12 @@ export default function Home() {
             specialized tasks.
           </p>
 
-          <a
+          <Link
             href="/clients"
             className="mt-7 inline-block rounded-xl bg-white px-6 py-3 font-semibold text-black transition hover:bg-gray-200"
           >
             Start a Project
-          </a>
+          </Link>
         </div>
       </section>
 
@@ -429,19 +430,19 @@ export default function Home() {
             </p>
 
             <div className="mt-8 flex flex-col justify-center gap-4 sm:flex-row">
-              <a
+              <Link
                 href="/register"
                 className="rounded-2xl bg-cyan-400 px-8 py-4 font-bold text-black transition hover:bg-cyan-300"
               >
                 Get Started →
-              </a>
+              </Link>
 
-              <a
+              <Link
                 href="/how-it-works"
                 className="rounded-2xl border border-white/15 px-8 py-4 font-semibold transition hover:bg-white/10"
               >
                 Learn More
-              </a>
+              </Link>
             </div>
           </div>
         </div>
@@ -451,9 +452,9 @@ export default function Home() {
       <footer className="border-t border-white/10 py-10">
         <div className="mx-auto flex max-w-7xl flex-col justify-between gap-8 px-6 md:flex-row">
           <div>
-            <a href="/" className="text-xl font-bold">
+            <Link href="/" className="text-xl font-bold">
               ROFRA<span className="text-cyan-400">AI</span>
-            </a>
+            </Link>
 
             <p className="mt-2 text-sm text-gray-500">
               Building the workforce behind AI.
@@ -461,40 +462,40 @@ export default function Home() {
           </div>
 
           <div className="flex flex-wrap gap-6 text-sm text-gray-500">
-            <a
+            <Link
               href="/how-it-works"
               className="hover:text-white"
             >
               How It Works
-            </a>
+            </Link>
 
-            <a
+            <Link
               href="/freelancers"
               className="hover:text-white"
             >
               Freelancers
-            </a>
+            </Link>
 
-            <a
+            <Link
               href="/clients"
               className="hover:text-white"
             >
               Clients
-            </a>
+            </Link>
 
-            <a
+            <Link
               href="/pricing"
               className="hover:text-white"
             >
               Pricing
-            </a>
+            </Link>
 
-            <a
+            <Link
               href="/login"
               className="hover:text-white"
             >
               Login
-            </a>
+            </Link>
           </div>
 
           <div className="text-sm text-gray-500">

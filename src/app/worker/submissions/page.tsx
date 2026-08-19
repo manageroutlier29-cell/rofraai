@@ -53,7 +53,7 @@ export default async function WorkerSubmissionsPage() {
         </h1>
 
         <p className="mt-2 text-gray-400">
-          Track work you've submitted for review.
+          Track work you&apos;ve submitted for review.
         </p>
       </div>
 

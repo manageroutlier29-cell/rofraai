@@ -1,10 +1,12 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { signIn } from "next-auth/react";
 import { FormEvent, useState } from "react";
 
 export default function LoginPage() {
+  const router = useRouter();
   const [showPassword, setShowPassword] = useState(false);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -53,17 +55,17 @@ export default function LoginPage() {
        * Redirect users according to their account role.
        */
       if (role === "ADMIN") {
-        window.location.href = "/admin";
+        router.push("/admin");
         return;
       }
 
       if (role === "CLIENT") {
-        window.location.href = "/for-clients";
+        router.push("/for-clients");
         return;
       }
 
       if (role === "WORKER") {
-        window.location.href = "/worker";
+        router.push("/worker");
         return;
       }
 
@@ -286,7 +288,7 @@ export default function LoginPage() {
               </button>
 
               <p className="mt-8 text-center text-sm text-gray-500">
-                Don't have an account?{" "}
+                Don&apos;t have an account?{" "}
 
                 <Link
                   href="/register"

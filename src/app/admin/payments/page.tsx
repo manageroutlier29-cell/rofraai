@@ -78,8 +78,48 @@ export default function AdminPayments() {
   }
 
   useEffect(() => {
-    loadWithdrawals();
-  }, []);
+  let cancelled = false;
+
+  async function load() {
+    try {
+      setLoading(true);
+      setError("");
+
+      const response = await fetch("/api/admin/withdrawals");
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(
+          data.error || "Unable to load withdrawals."
+        );
+      }
+
+      if (!cancelled) {
+        setWithdrawals(
+          (data as WithdrawalsResponse).withdrawals || []
+        );
+      }
+    } catch (err) {
+      if (!cancelled) {
+        setError(
+          err instanceof Error
+            ? err.message
+            : "Unable to load withdrawals."
+        );
+      }
+    } finally {
+      if (!cancelled) {
+        setLoading(false);
+      }
+    }
+  }
+
+  load();
+
+  return () => {
+    cancelled = true;
+  };
+}, []);
 
   const stats = useMemo(() => {
     return {

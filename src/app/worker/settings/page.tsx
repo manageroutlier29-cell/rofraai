@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 type PaymentAccount = {
   id: string;
@@ -46,11 +46,7 @@ export default function SettingsPage() {
 
   const [paymentSaving, setPaymentSaving] = useState(false);
 
-  useEffect(() => {
-    loadPaymentAccounts();
-  }, []);
-
-  async function loadPaymentAccounts() {
+  const loadPaymentAccounts = useCallback(async () => {
     try {
       setPaymentLoading(true);
       setPaymentError("");
@@ -77,7 +73,13 @@ export default function SettingsPage() {
     } finally {
       setPaymentLoading(false);
     }
-  }
+  }, []);
+
+  // Load payment accounts once when the settings page mounts.
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    loadPaymentAccounts();
+  }, [loadPaymentAccounts]);
 
   function resetPaymentForm() {
     setAccountName("");
