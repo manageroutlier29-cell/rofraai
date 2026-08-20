@@ -40,7 +40,6 @@ export async function PATCH(
 
     const allowedStatuses = [
       "PROCESSING",
-      "PAID",
       "FAILED",
       "CANCELLED",
     ];
@@ -91,12 +90,6 @@ export async function PATCH(
         throw new Error("INVALID_PAYMENT_TRANSITION");
       }
 
-      if (
-        status === "PAID" &&
-        withdrawal.status !== "PROCESSING"
-      ) {
-        throw new Error("INVALID_PAYMENT_TRANSITION");
-      }
 
       if (
         (status === "FAILED" || status === "CANCELLED") &&
@@ -315,13 +308,15 @@ return updatedWithdrawal;
       }
     }
 
-    console.error(
-      "Admin withdrawal processing error:",
-      error
-    );
+        console.error("Admin withdrawal processing error:", error);
 
     return NextResponse.json(
-      { error: "Unable to process withdrawal." },
+      {
+        error:
+          error instanceof Error
+            ? error.message
+            : "Unable to process withdrawal.",
+      },
       { status: 500 }
     );
   }

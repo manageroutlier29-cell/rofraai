@@ -46,30 +46,49 @@ export async function GET() {
       },
     });
 
-  const wallet = await prisma.workerWallet.upsert({
-  where: {
-    workerId,
-  },
-  create: {
-    workerId,
-  },
-  update: {},
-});
+    const wallet = await prisma.workerWallet.upsert({
+      where: {
+        workerId,
+      },
+      create: {
+        workerId,
+      },
+      update: {},
+    });
 
-const available = Number(wallet.availableBalance);
-const pending = Number(wallet.pendingBalance);
-const paid = Number(wallet.paidBalance);
+    /*
+     * Earnings ledger is the source of truth for earnings status.
+     *
+     * Wallet pendingBalance is NOT pending earnings.
+     * It represents funds reserved for withdrawal.
+     */
 
-const totalEarned = available + pending + paid;
+    const pendingEarnings = earnings
+      .filter((earning) => earning.status === "PENDING")
+      .reduce((total, earning) => total + Number(earning.amount), 0);
+
+    const totalEarned = earnings
+      .filter((earning) => earning.status !== "REVERSED")
+      .reduce((total, earning) => total + Number(earning.amount), 0);
+
+    const available = Number(wallet.availableBalance);
+    const paid = Number(wallet.paidBalance);
+
+    /*
+     * Pending withdrawals are calculated separately from
+     * the wallet's pending balance.
+     */
+    const pendingWithdrawals = Number(wallet.pendingBalance);
 
     return NextResponse.json({
       success: true,
 
       balance: {
         available: available.toFixed(2),
-        pending: pending.toFixed(2),
+        pending: pendingEarnings.toFixed(2),
         paidOut: paid.toFixed(2),
         totalEarned: totalEarned.toFixed(2),
+        pendingWithdrawals: pendingWithdrawals.toFixed(2),
       },
 
       earnings: earnings.map((earning) => ({

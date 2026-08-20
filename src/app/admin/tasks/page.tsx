@@ -1,4 +1,6 @@
 import { prisma } from "@/lib/prisma";
+import CreateTaskButton from "./CreateTaskButton";
+import DeleteTaskButton from "./DeleteTaskButton";
 
 export default async function AdminTasksPage() {
   const tasks = await prisma.task.findMany({
@@ -75,9 +77,7 @@ export default async function AdminTasksPage() {
           </p>
         </div>
 
-        <button className="rounded-xl bg-cyan-400 px-5 py-3 font-semibold text-[#07111f] transition hover:bg-cyan-300">
-          + Create Task
-        </button>
+        <CreateTaskButton />
 
       </div>
 
@@ -287,6 +287,11 @@ export default async function AdminTasksPage() {
                       <button className="rounded-lg border border-white/10 px-3 py-2 text-xs font-medium text-gray-300 transition hover:bg-white/[0.05] hover:text-white">
                         View
                       </button>
+
+                      <DeleteTaskButton
+    taskId={task.id}
+    taskTitle={task.title}
+  />
 
                     </td>
 

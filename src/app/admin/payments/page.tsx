@@ -12,6 +12,11 @@ type WithdrawalStatus =
 type Withdrawal = {
   id: string;
   amount: string;
+
+  payoutAmount: string | null;
+  payoutCurrency: string | null;
+  exchangeRate: string | null;
+
   status: WithdrawalStatus;
   paymentMethod: string | null;
   paymentReference: string | null;
@@ -19,6 +24,7 @@ type Withdrawal = {
   requestedAt: string;
   processedAt: string | null;
   createdAt: string;
+
   worker: {
     id: string;
     firstName: string;

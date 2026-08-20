@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 
 type Earning = {
   id: string;
@@ -59,10 +59,10 @@ type EarningsResponse = {
     pending: string;
     paidOut: string;
     totalEarned: string;
+    pendingWithdrawals: string;
   };
   earnings: Earning[];
 };
-
 type WithdrawalsResponse = {
   success: boolean;
   withdrawals: Withdrawal[];
@@ -158,49 +158,9 @@ export default function EarningsPage() {
     }
   }
 
-  useEffect(() => {
-  let cancelled = false;
-
-  async function load() {
-    try {
-      setLoading(true);
-      setError("");
-
-      const response = await fetch("/api/admin/withdrawals");
-      const data = await response.json();
-
-      if (!response.ok) {
-        throw new Error(
-          data.error || "Unable to load withdrawals."
-        );
-      }
-
-      if (!cancelled) {
-        setWithdrawals(
-          (data as WithdrawalsResponse).withdrawals || []
-        );
-      }
-    } catch (err) {
-      if (!cancelled) {
-        setError(
-          err instanceof Error
-            ? err.message
-            : "Unable to load withdrawals."
-        );
-      }
-    } finally {
-      if (!cancelled) {
-        setLoading(false);
-      }
-    }
-  }
-
-  load();
-
-  return () => {
-    cancelled = true;
-  };
-}, []);
+useEffect(() => {
+    loadEarnings();
+  }, []);
 
   const balance = data?.balance ?? {
     available: "0.00",
@@ -211,23 +171,7 @@ export default function EarningsPage() {
 
   const earnings = data?.earnings ?? [];
 
-  const withdrawableBalance = useMemo(() => {
-    const pendingWithdrawals = withdrawals
-      .filter(
-        (withdrawal) =>
-          withdrawal.status === "PENDING" ||
-          withdrawal.status === "PROCESSING"
-      )
-      .reduce(
-        (total, withdrawal) => total + Number(withdrawal.amount),
-        0
-      );
-
-    return Math.max(
-      Number(balance.available) - pendingWithdrawals,
-      0
-    );
-  }, [balance.available, withdrawals]);
+  const withdrawableBalance = Number(balance.available);
 
   async function requestWithdrawal() {
     setWithdrawError("");

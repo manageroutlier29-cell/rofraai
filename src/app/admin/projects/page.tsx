@@ -1,4 +1,6 @@
 import { prisma } from "@/lib/prisma";
+import CreateProjectModal from "./CreateProjectModal";
+import DeleteProjectButton from "./DeleteProjectButton";
 
 export default async function AdminProjectsPage() {
   const projects = await prisma.project.findMany({
@@ -65,9 +67,7 @@ export default async function AdminProjectsPage() {
           </p>
         </div>
 
-        <button className="rounded-xl bg-cyan-400 px-5 py-3 font-semibold text-[#07111f] transition hover:bg-cyan-300">
-          + Create Project
-        </button>
+        <CreateProjectModal />
 
       </div>
 
@@ -256,6 +256,11 @@ export default async function AdminProjectsPage() {
                     <button className="rounded-lg border border-white/10 px-3 py-2 text-xs font-medium text-gray-300 transition hover:bg-white/[0.05] hover:text-white">
                       View
                     </button>
+
+                    <DeleteProjectButton
+    projectId={project.id}
+    projectTitle={project.title}
+  />
 
                   </td>
 

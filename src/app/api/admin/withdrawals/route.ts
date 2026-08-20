@@ -39,17 +39,27 @@ export async function GET() {
     return NextResponse.json({
       success: true,
       withdrawals: withdrawals.map((withdrawal) => ({
-        id: withdrawal.id,
-        amount: withdrawal.amount.toString(),
-        status: withdrawal.status,
-        paymentMethod: withdrawal.paymentMethod,
-        paymentReference: withdrawal.paymentReference,
-        failureReason: withdrawal.failureReason,
-        requestedAt: withdrawal.requestedAt,
-        processedAt: withdrawal.processedAt,
-        createdAt: withdrawal.createdAt,
-        worker: withdrawal.worker,
-      })),
+  id: withdrawal.id,
+  amount: withdrawal.amount.toString(),
+
+  payoutAmount:
+    withdrawal.payoutAmount?.toString() ?? null,
+
+  payoutCurrency:
+    withdrawal.payoutCurrency,
+
+  exchangeRate:
+    withdrawal.exchangeRate?.toString() ?? null,
+
+  status: withdrawal.status,
+  paymentMethod: withdrawal.paymentMethod,
+  paymentReference: withdrawal.paymentReference,
+  failureReason: withdrawal.failureReason,
+  requestedAt: withdrawal.requestedAt,
+  processedAt: withdrawal.processedAt,
+  createdAt: withdrawal.createdAt,
+  worker: withdrawal.worker,
+})),
     });
   } catch (error) {
     console.error("Admin withdrawals error:", error);

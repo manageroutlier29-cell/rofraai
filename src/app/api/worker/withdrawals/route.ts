@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
+import { calculateKesPayout } from "@/lib/payout-config";
 
 const MIN_WITHDRAWAL = 10;
 
@@ -40,6 +41,16 @@ export async function GET() {
         paymentMethod: withdrawal.paymentMethod,
         paymentReference: withdrawal.paymentReference,
         failureReason: withdrawal.failureReason,
+
+         payoutAmount:
+    withdrawal.payoutAmount?.toString() ?? null,
+
+  payoutCurrency:
+    withdrawal.payoutCurrency,
+
+  exchangeRate:
+    withdrawal.exchangeRate?.toString() ?? null,
+
         requestedAt: withdrawal.requestedAt,
         processedAt: withdrawal.processedAt,
         createdAt: withdrawal.createdAt,
@@ -75,37 +86,61 @@ export async function POST(request: Request) {
 
     const body = await request.json();
 
-    const amount = Number(body.amount);
+   const amount = Number(body.amount);
 
-    const paymentAccountId =
-      typeof body.paymentAccountId === "string"
-        ? body.paymentAccountId.trim()
-        : "";
+if (!Number.isFinite(amount) || amount <= 0) {
+  return NextResponse.json(
+    { error: "Enter a valid withdrawal amount." },
+    { status: 400 }
+  );
+}
 
-    if (!Number.isFinite(amount) || amount <= 0) {
-      return NextResponse.json(
-        { error: "Enter a valid withdrawal amount." },
-        { status: 400 }
-      );
-    }
+if (amount < MIN_WITHDRAWAL) {
+  return NextResponse.json(
+    {
+      error: `Minimum withdrawal amount is $${MIN_WITHDRAWAL.toFixed(2)}.`,
+    },
+    { status: 400 }
+  );
+}
 
-    if (amount < MIN_WITHDRAWAL) {
-      return NextResponse.json(
-        {
-          error: `Minimum withdrawal amount is $${MIN_WITHDRAWAL.toFixed(2)}.`,
-        },
-        { status: 400 }
-      );
-    }
+const paymentAccountId =
+  typeof body.paymentAccountId === "string"
+    ? body.paymentAccountId.trim()
+    : "";
 
-    if (!paymentAccountId) {
-      return NextResponse.json(
-        { error: "Please select a payment account." },
-        { status: 400 }
-      );
-    }
+if (!paymentAccountId) {
+  return NextResponse.json(
+    { error: "Please select a payment account." },
+    { status: 400 }
+  );
+}
+
+/*
+ * Calculate the payout using the single payout
+ * configuration source of truth.
+ *
+ * The exchange rate and KES amount are then
+ * snapshotted onto the withdrawal.
+ */
+let payout;
+
+try {
+  payout = calculateKesPayout(amount);
+} catch (error) {
+  console.error("Payout calculation error:", error);
+
+  return NextResponse.json(
+    {
+      error:
+        "Withdrawal exchange rate is not configured.",
+    },
+    { status: 500 }
+  );
+}
 
     const workerId = session.user.id;
+
 
     const result = await prisma.$transaction(async (tx) => {
       /*
@@ -188,6 +223,7 @@ export async function POST(request: Request) {
             amount,
             status: "PENDING",
 
+
             paymentMethod:
               paymentAccount.type === "MPESA"
                 ? "M-Pesa"
@@ -216,6 +252,9 @@ export async function POST(request: Request) {
 
             payoutCurrencyCode:
               paymentAccount.currency,
+            exchangeRate: payout.exchangeRate,
+payoutAmount: payout.payoutAmount,
+payoutCurrency: payout.payoutCurrency,
 
             requestedAt: new Date(),
           },
@@ -243,6 +282,10 @@ export async function POST(request: Request) {
               withdrawalId: withdrawal.id,
               paymentAccountId: paymentAccount.id,
               paymentAccountType: paymentAccount.type,
+              payoutCurrency: payout.payoutCurrency,
+  payoutCurrencyCode: payout.payoutCurrencyCode,
+  exchangeRate: payout.exchangeRate,
+  payoutAmount: payout.payoutAmount,
             },
           },
         });
@@ -261,17 +304,23 @@ export async function POST(request: Request) {
           "Withdrawal request submitted successfully.",
 
         withdrawal: {
-          id: result.withdrawal.id,
-          amount:
-            result.withdrawal.amount.toString(),
-          status: result.withdrawal.status,
-          paymentMethod:
-            result.withdrawal.paymentMethod,
-          paymentAccountId:
-            result.withdrawal.paymentAccountId,
-          requestedAt:
-            result.withdrawal.requestedAt,
-        },
+  id: result.withdrawal.id,
+  amount:
+    result.withdrawal.amount.toString(),
+  status: result.withdrawal.status,
+  paymentMethod:
+    result.withdrawal.paymentMethod,
+  paymentAccountId:
+    result.withdrawal.paymentAccountId,
+  payoutAmount:
+    result.withdrawal.payoutAmount?.toString() ?? null,
+  payoutCurrency:
+    result.withdrawal.payoutCurrency,
+  exchangeRate:
+    result.withdrawal.exchangeRate?.toString() ?? null,
+  requestedAt:
+    result.withdrawal.requestedAt,
+},
 
         balance: {
           available:
