@@ -365,6 +365,7 @@ export default async function AdminReviewsPage() {
 
                     <ReviewActions
                       submissionId={submission.id}
+                      submissionStatus={submission.status}
                     />
 
                   </article>

@@ -48,8 +48,7 @@ export async function PATCH(
     ) {
       return NextResponse.json(
         {
-          error:
-            "Score must be an integer between 0 and 100",
+          error: "Score must be an integer between 0 and 100",
         },
         { status: 400 }
       );
@@ -63,6 +62,7 @@ export async function PATCH(
         assignment: {
           include: {
             task: true,
+            earning: true,
           },
         },
       },
@@ -72,6 +72,44 @@ export async function PATCH(
       return NextResponse.json(
         { error: "Submission not found" },
         { status: 404 }
+      );
+    }
+
+    /*
+     * Only submitted or actively reviewed submissions
+     * can receive a new admin decision.
+     *
+     * This prevents an already approved, rejected, or
+     * revision-required submission from being processed
+     * again accidentally.
+     */
+    const reviewableStatuses = [
+      "SUBMITTED",
+      "UNDER_REVIEW",
+    ];
+
+    if (!reviewableStatuses.includes(submission.status)) {
+      return NextResponse.json(
+        {
+          error: `This submission cannot be reviewed because its current status is ${submission.status}.`,
+        },
+        { status: 409 }
+      );
+    }
+
+    /*
+     * An assignment can only have one earning.
+     *
+     * This is a second layer of protection against
+     * duplicate worker payments.
+     */
+    if (status === "APPROVED" && submission.assignment.earning) {
+      return NextResponse.json(
+        {
+          error:
+            "This assignment has already generated an earning.",
+        },
+        { status: 409 }
       );
     }
 
@@ -93,22 +131,22 @@ export async function PATCH(
       /*
        * Update the submission.
        */
-      const updatedSubmission =
-        await tx.submission.update({
-          where: {
-            id: submission.id,
-          },
-          data: {
-            status,
-            reviewedAt: new Date(),
-          },
-        });
+      const updatedSubmission = await tx.submission.update({
+        where: {
+          id: submission.id,
+        },
+        data: {
+          status,
+          reviewedAt: new Date(),
+        },
+      });
 
       /*
        * APPROVED
        *
        * Complete the assignment and task,
-       * then create the worker's earning.
+       * then create the worker's earning,
+       * wallet credit, and financial transaction.
        */
       if (status === "APPROVED") {
         const completedAssignment =
@@ -131,13 +169,6 @@ export async function PATCH(
           },
         });
 
-        /*
-         * Create the earning.
-         *
-         * The unique assignmentId constraint prevents
-         * the same assignment from generating multiple
-         * earnings.
-         */
         const earning = await tx.earning.create({
           data: {
             workerId: submission.workerId,
@@ -149,45 +180,42 @@ export async function PATCH(
             availableAt: new Date(),
           },
         });
-         const wallet = await tx.workerWallet.upsert({
-  where: {
-    workerId: submission.workerId,
-  },
-  create: {
-    workerId: submission.workerId,
-    availableBalance: submission.assignment.task.reward,
-  },
-  update: {
-    availableBalance: {
-      increment: submission.assignment.task.reward,
-    },
-  },
-});
 
-/*
- * Create the financial transaction.
- *
- * This creates an audit record for the worker's
- * completed task payment.
- */
-const transaction = await tx.transaction.create({
-  data: {
-    userId: submission.workerId,
-    type: "TASK_EARNING",
-    status: "COMPLETED",
-    amount: submission.assignment.task.reward,
-    currency: "USD",
-    reference: earning.id,
-    description:
-      `Earning for completed task: ${submission.assignment.task.title}`,
-    metadata: {
-      earningId: earning.id,
-      assignmentId: completedAssignment.id,
-      taskId: submission.assignment.task.id,
-    },
-  },
-});
- 
+        const wallet = await tx.workerWallet.upsert({
+          where: {
+            workerId: submission.workerId,
+          },
+          create: {
+            workerId: submission.workerId,
+            availableBalance:
+              submission.assignment.task.reward,
+          },
+          update: {
+            availableBalance: {
+              increment:
+                submission.assignment.task.reward,
+            },
+          },
+        });
+
+        const transaction = await tx.transaction.create({
+          data: {
+            userId: submission.workerId,
+            type: "TASK_EARNING",
+            status: "COMPLETED",
+            amount: submission.assignment.task.reward,
+            currency: "USD",
+            reference: earning.id,
+            description:
+              `Earning for completed task: ${submission.assignment.task.title}`,
+            metadata: {
+              earningId: earning.id,
+              assignmentId: completedAssignment.id,
+              taskId: submission.assignment.task.id,
+            },
+          },
+        });
+
         return {
           review,
           submission: updatedSubmission,
@@ -200,6 +228,9 @@ const transaction = await tx.transaction.create({
 
       /*
        * REVISION REQUIRED
+       *
+       * The worker can submit another Submission
+       * for the same Assignment.
        */
       if (status === "REVISION_REQUIRED") {
         const updatedAssignment =
@@ -226,6 +257,8 @@ const transaction = await tx.transaction.create({
           submission: updatedSubmission,
           assignment: updatedAssignment,
           earning: null,
+          wallet: null,
+          transaction: null,
         };
       }
 
@@ -257,6 +290,8 @@ const transaction = await tx.transaction.create({
           submission: updatedSubmission,
           assignment: rejectedAssignment,
           earning: null,
+          wallet: null,
+          transaction: null,
         };
       }
 
@@ -265,6 +300,8 @@ const transaction = await tx.transaction.create({
         submission: updatedSubmission,
         assignment: null,
         earning: null,
+        wallet: null,
+        transaction: null,
       };
     });
 
@@ -284,8 +321,8 @@ const transaction = await tx.transaction.create({
     /*
      * Prisma unique constraint.
      *
-     * This protects against accidentally creating
-     * a second earning for the same assignment.
+     * This remains as a final database-level safety net
+     * against duplicate earnings.
      */
     if (
       error &&
