@@ -2,6 +2,28 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { auth } from "@/auth";
 
+const REVIEWABLE_SUBMISSION_STATUSES = [
+  "SUBMITTED",
+  "UNDER_REVIEW",
+] as const;
+
+const ALLOWED_REVIEW_STATUSES = [
+  "APPROVED",
+  "REVISION_REQUIRED",
+  "REJECTED",
+] as const;
+
+type ReviewDecision = (typeof ALLOWED_REVIEW_STATUSES)[number];
+
+function isReviewDecision(value: unknown): value is ReviewDecision {
+  return (
+    typeof value === "string" &&
+    ALLOWED_REVIEW_STATUSES.includes(
+      value as ReviewDecision
+    )
+  );
+}
+
 export async function PATCH(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
@@ -24,286 +46,488 @@ export async function PATCH(
     }
 
     const { id } = await params;
-    const body = await request.json();
 
-    const { status, score, feedback } = body;
-
-    const allowedStatuses = [
-      "APPROVED",
-      "REVISION_REQUIRED",
-      "REJECTED",
-    ];
-
-    if (!allowedStatuses.includes(status)) {
+    if (!id) {
       return NextResponse.json(
-        { error: "Invalid review status" },
+        { error: "Submission ID is required." },
+        { status: 400 }
+      );
+    }
+
+    let body: unknown;
+
+    try {
+      body = await request.json();
+    } catch {
+      return NextResponse.json(
+        { error: "Invalid request body." },
         { status: 400 }
       );
     }
 
     if (
-      score !== undefined &&
+      typeof body !== "object" ||
+      body === null
+    ) {
+      return NextResponse.json(
+        { error: "Invalid request body." },
+        { status: 400 }
+      );
+    }
+
+    const status =
+      "status" in body ? body.status : undefined;
+
+    const rawScore =
+      "score" in body ? body.score : null;
+
+    const feedback =
+      "feedback" in body ? body.feedback : null;
+
+    const score: number | null =
+      rawScore === null ||
+      rawScore === undefined ||
+      rawScore === ""
+        ? null
+        : typeof rawScore === "number"
+          ? rawScore
+          : typeof rawScore === "string"
+            ? Number(rawScore)
+            : NaN;
+
+    if (!isReviewDecision(status)) {
+      return NextResponse.json(
+        { error: "Invalid review status." },
+        { status: 400 }
+      );
+    }
+
+    if (
       score !== null &&
-      (!Number.isInteger(score) || score < 0 || score > 100)
+      score !== undefined &&
+      (
+        !Number.isInteger(score) ||
+        score < 0 ||
+        score > 100
+      )
     ) {
       return NextResponse.json(
         {
-          error: "Score must be an integer between 0 and 100",
+          error:
+            "Score must be an integer between 0 and 100.",
         },
         { status: 400 }
       );
     }
 
-    const submission = await prisma.submission.findUnique({
-      where: {
-        id,
-      },
-      include: {
-        assignment: {
-          include: {
-            task: true,
-            earning: true,
-          },
-        },
-      },
-    });
-
-    if (!submission) {
+    if (
+      feedback !== null &&
+      feedback !== undefined &&
+      typeof feedback !== "string"
+    ) {
       return NextResponse.json(
-        { error: "Submission not found" },
-        { status: 404 }
+        { error: "Feedback must be text." },
+        { status: 400 }
       );
     }
 
-    /*
-     * Only submitted or actively reviewed submissions
-     * can receive a new admin decision.
-     *
-     * This prevents an already approved, rejected, or
-     * revision-required submission from being processed
-     * again accidentally.
-     */
-    const reviewableStatuses = [
-      "SUBMITTED",
-      "UNDER_REVIEW",
-    ];
+    const normalizedFeedback =
+      typeof feedback === "string"
+        ? feedback.trim() || null
+        : null;
 
-    if (!reviewableStatuses.includes(submission.status)) {
-      return NextResponse.json(
-        {
-          error: `This submission cannot be reviewed because its current status is ${submission.status}.`,
-        },
-        { status: 409 }
-      );
-    }
-
-    /*
-     * An assignment can only have one earning.
-     *
-     * This is a second layer of protection against
-     * duplicate worker payments.
-     */
-    if (status === "APPROVED" && submission.assignment.earning) {
-      return NextResponse.json(
-        {
-          error:
-            "This assignment has already generated an earning.",
-        },
-        { status: 409 }
-      );
-    }
-
-    const result = await prisma.$transaction(async (tx) => {
-      /*
-       * Create the review record.
-       */
-      const review = await tx.review.create({
-        data: {
-          submissionId: submission.id,
-          reviewerId: session.user.id,
-          status,
-          score: score ?? null,
-          feedback: feedback ?? null,
-          reviewedAt: new Date(),
-        },
-      });
-
-      /*
-       * Update the submission.
-       */
-      const updatedSubmission = await tx.submission.update({
-        where: {
-          id: submission.id,
-        },
-        data: {
-          status,
-          reviewedAt: new Date(),
-        },
-      });
-
-      /*
-       * APPROVED
-       *
-       * Complete the assignment and task,
-       * then create the worker's earning,
-       * wallet credit, and financial transaction.
-       */
-      if (status === "APPROVED") {
-        const completedAssignment =
-          await tx.assignment.update({
+    const result = await prisma.$transaction(
+      async (tx) => {
+        /*
+         * IMPORTANT:
+         * Read the submission inside the transaction.
+         *
+         * This prevents the initial state check from becoming
+         * stale before the actual review decision is applied.
+         */
+        const submission =
+          await tx.submission.findUnique({
             where: {
-              id: submission.assignmentId,
+              id,
             },
-            data: {
-              status: "COMPLETED",
-              completedAt: new Date(),
+            include: {
+              assignment: {
+                include: {
+                  task: true,
+                  earning: true,
+                },
+              },
             },
           });
 
-        await tx.task.update({
-          where: {
-            id: submission.assignment.taskId,
-          },
+        if (!submission) {
+          throw new Error("SUBMISSION_NOT_FOUND");
+        }
+
+        /*
+         * Only a freshly submitted or actively reviewed
+         * submission can receive a decision.
+         */
+        if (
+          !REVIEWABLE_SUBMISSION_STATUSES.includes(
+            submission.status as
+              (typeof REVIEWABLE_SUBMISSION_STATUSES)[number]
+          )
+        ) {
+          throw new Error("SUBMISSION_NOT_REVIEWABLE");
+        }
+
+        /*
+         * The assignment must still belong to the submission
+         * and be in the state expected by the review workflow.
+         */
+        if (
+          submission.assignment.workerId !==
+          submission.workerId
+        ) {
+          throw new Error("ASSIGNMENT_WORKER_MISMATCH");
+        }
+
+        if (
+          submission.assignment.status !==
+          "SUBMITTED"
+        ) {
+          throw new Error("ASSIGNMENT_NOT_SUBMITTED");
+        }
+
+        if (
+          submission.assignment.task.status !==
+          "SUBMITTED"
+        ) {
+          throw new Error("TASK_NOT_SUBMITTED");
+        }
+
+        /*
+         * Approval must never create a second earning.
+         */
+        if (
+          status === "APPROVED" &&
+          submission.assignment.earning
+        ) {
+          throw new Error("EARNING_ALREADY_EXISTS");
+        }
+
+        const now = new Date();
+
+        /*
+         * Atomically claim the submission for this review
+         * decision.
+         *
+         * A concurrent admin request will receive count = 0
+         * after the first transaction changes the status.
+         */
+        const claimedSubmission =
+          await tx.submission.updateMany({
+            where: {
+              id: submission.id,
+              status: {
+                in: [
+                  "SUBMITTED",
+                  "UNDER_REVIEW",
+                ],
+              },
+            },
+            data: {
+              status,
+              reviewedAt: now,
+            },
+          });
+
+        if (claimedSubmission.count !== 1) {
+          throw new Error("SUBMISSION_ALREADY_REVIEWED");
+        }
+
+        /*
+         * Create the immutable review decision.
+         */
+        const review = await tx.review.create({
           data: {
-            status: "COMPLETED",
+            submissionId: submission.id,
+            reviewerId: session.user.id,
+            status,
+            score:
+              score === null ||
+              score === undefined
+                ? null
+                : score,
+            feedback: normalizedFeedback,
+            reviewedAt: now,
           },
         });
 
-        const earning = await tx.earning.create({
-          data: {
-            workerId: submission.workerId,
-            assignmentId: completedAssignment.id,
-            amount: submission.assignment.task.reward,
-            status: "AVAILABLE",
-            description:
-              `Payment for completed task: ${submission.assignment.task.title}`,
-            availableAt: new Date(),
-          },
-        });
+        /*
+         * APPROVED
+         *
+         * Complete assignment and task, then create the
+         * earning, wallet credit, and financial transaction.
+         */
+        if (status === "APPROVED") {
+          const assignmentUpdate =
+            await tx.assignment.updateMany({
+              where: {
+                id: submission.assignmentId,
+                workerId: submission.workerId,
+                status: "SUBMITTED",
+              },
+              data: {
+                status: "COMPLETED",
+                completedAt: now,
+              },
+            });
 
-        const wallet = await tx.workerWallet.upsert({
-          where: {
-            workerId: submission.workerId,
-          },
-          create: {
-            workerId: submission.workerId,
-            availableBalance:
-              submission.assignment.task.reward,
-          },
-          update: {
-            availableBalance: {
-              increment:
+          if (assignmentUpdate.count !== 1) {
+            throw new Error(
+              "ASSIGNMENT_STATE_CHANGED"
+            );
+          }
+
+          const taskUpdate =
+            await tx.task.updateMany({
+              where: {
+                id: submission.assignment.taskId,
+                workerId: submission.workerId,
+                status: "SUBMITTED",
+              },
+              data: {
+                status: "COMPLETED",
+              },
+            });
+
+          if (taskUpdate.count !== 1) {
+            throw new Error(
+              "TASK_STATE_CHANGED"
+            );
+          }
+
+          const earning = await tx.earning.create({
+            data: {
+              workerId: submission.workerId,
+              assignmentId:
+                submission.assignmentId,
+              amount:
                 submission.assignment.task.reward,
-            },
-          },
-        });
-
-        const transaction = await tx.transaction.create({
-          data: {
-            userId: submission.workerId,
-            type: "TASK_EARNING",
-            status: "COMPLETED",
-            amount: submission.assignment.task.reward,
-            currency: "USD",
-            reference: earning.id,
-            description:
-              `Earning for completed task: ${submission.assignment.task.title}`,
-            metadata: {
-              earningId: earning.id,
-              assignmentId: completedAssignment.id,
-              taskId: submission.assignment.task.id,
-            },
-          },
-        });
-
-        return {
-          review,
-          submission: updatedSubmission,
-          assignment: completedAssignment,
-          earning,
-          wallet,
-          transaction,
-        };
-      }
-
-      /*
-       * REVISION REQUIRED
-       *
-       * The worker can submit another Submission
-       * for the same Assignment.
-       */
-      if (status === "REVISION_REQUIRED") {
-        const updatedAssignment =
-          await tx.assignment.update({
-            where: {
-              id: submission.assignmentId,
-            },
-            data: {
-              status: "IN_PROGRESS",
+              status: "AVAILABLE",
+              description:
+                `Payment for completed task: ${submission.assignment.task.title}`,
+              availableAt: now,
             },
           });
 
-        await tx.task.update({
-          where: {
-            id: submission.assignment.taskId,
-          },
-          data: {
-            status: "IN_PROGRESS",
-          },
-        });
+          const wallet =
+            await tx.workerWallet.upsert({
+              where: {
+                workerId: submission.workerId,
+              },
+              create: {
+                workerId: submission.workerId,
+                availableBalance:
+                  submission.assignment.task.reward,
+              },
+              update: {
+                availableBalance: {
+                  increment:
+                    submission.assignment.task.reward,
+                },
+              },
+            });
 
-        return {
-          review,
-          submission: updatedSubmission,
-          assignment: updatedAssignment,
-          earning: null,
-          wallet: null,
-          transaction: null,
-        };
-      }
+          const transaction =
+            await tx.transaction.create({
+              data: {
+                userId: submission.workerId,
+                type: "TASK_EARNING",
+                status: "COMPLETED",
+                amount:
+                  submission.assignment.task.reward,
+                currency: "USD",
+                reference: earning.id,
+                description:
+                  `Earning for completed task: ${submission.assignment.task.title}`,
+                metadata: {
+                  earningId: earning.id,
+                  assignmentId:
+                    submission.assignmentId,
+                  taskId:
+                    submission.assignment.taskId,
+                  submissionId:
+                    submission.id,
+                },
+              },
+            });
 
-      /*
-       * REJECTED
-       */
-      if (status === "REJECTED") {
-        const rejectedAssignment =
-          await tx.assignment.update({
+          const assignment =
+            await tx.assignment.findUnique({
+              where: {
+                id: submission.assignmentId,
+              },
+            });
+
+          const task = await tx.task.findUnique({
+            where: {
+              id: submission.assignment.taskId,
+            },
+          });
+
+          return {
+            review,
+            submission: {
+              ...submission,
+              status,
+              reviewedAt: now,
+            },
+            assignment,
+            task,
+            earning,
+            wallet,
+            transaction,
+          };
+        }
+
+        /*
+         * REVISION REQUIRED
+         *
+         * The worker is allowed to continue working on the
+         * same assignment and submit a new submission.
+         */
+        if (status === "REVISION_REQUIRED") {
+          const assignmentUpdate =
+            await tx.assignment.updateMany({
+              where: {
+                id: submission.assignmentId,
+                workerId: submission.workerId,
+                status: "SUBMITTED",
+              },
+              data: {
+                status: "IN_PROGRESS",
+              },
+            });
+
+          if (assignmentUpdate.count !== 1) {
+            throw new Error(
+              "ASSIGNMENT_STATE_CHANGED"
+            );
+          }
+
+          const taskUpdate =
+            await tx.task.updateMany({
+              where: {
+                id: submission.assignment.taskId,
+                workerId: submission.workerId,
+                status: "SUBMITTED",
+              },
+              data: {
+                status: "IN_PROGRESS",
+              },
+            });
+
+          if (taskUpdate.count !== 1) {
+            throw new Error(
+              "TASK_STATE_CHANGED"
+            );
+          }
+
+          const assignment =
+            await tx.assignment.findUnique({
+              where: {
+                id: submission.assignmentId,
+              },
+            });
+
+          const task = await tx.task.findUnique({
+            where: {
+              id: submission.assignment.taskId,
+            },
+          });
+
+          return {
+            review,
+            submission: {
+              ...submission,
+              status,
+              reviewedAt: now,
+            },
+            assignment,
+            task,
+            earning: null,
+            wallet: null,
+            transaction: null,
+          };
+        }
+
+        /*
+         * REJECTED
+         *
+         * Rejected work permanently closes this assignment.
+         */
+        const assignmentUpdate =
+          await tx.assignment.updateMany({
             where: {
               id: submission.assignmentId,
+              workerId: submission.workerId,
+              status: "SUBMITTED",
             },
             data: {
               status: "REJECTED",
             },
           });
 
-        await tx.task.update({
+        if (assignmentUpdate.count !== 1) {
+          throw new Error(
+            "ASSIGNMENT_STATE_CHANGED"
+          );
+        }
+
+        const taskUpdate =
+          await tx.task.updateMany({
+            where: {
+              id: submission.assignment.taskId,
+              workerId: submission.workerId,
+              status: "SUBMITTED",
+            },
+            data: {
+              status: "CANCELLED",
+            },
+          });
+
+        if (taskUpdate.count !== 1) {
+          throw new Error(
+            "TASK_STATE_CHANGED"
+          );
+        }
+
+        const assignment =
+          await tx.assignment.findUnique({
+            where: {
+              id: submission.assignmentId,
+            },
+          });
+
+        const task = await tx.task.findUnique({
           where: {
             id: submission.assignment.taskId,
-          },
-          data: {
-            status: "CANCELLED",
           },
         });
 
         return {
           review,
-          submission: updatedSubmission,
-          assignment: rejectedAssignment,
+          submission: {
+            ...submission,
+            status,
+            reviewedAt: now,
+          },
+          assignment,
+          task,
           earning: null,
           wallet: null,
           transaction: null,
         };
       }
-
-      return {
-        review,
-        submission: updatedSubmission,
-        assignment: null,
-        earning: null,
-        wallet: null,
-        transaction: null,
-      };
-    });
+    );
 
     return NextResponse.json({
       success: true,
@@ -316,14 +540,88 @@ export async function PATCH(
       ...result,
     });
   } catch (error) {
-    console.error("Admin review error:", error);
+    if (error instanceof Error) {
+      switch (error.message) {
+        case "SUBMISSION_NOT_FOUND":
+          return NextResponse.json(
+            { error: "Submission not found." },
+            { status: 404 }
+          );
 
-    /*
-     * Prisma unique constraint.
-     *
-     * This remains as a final database-level safety net
-     * against duplicate earnings.
-     */
+        case "SUBMISSION_NOT_REVIEWABLE":
+          return NextResponse.json(
+            {
+              error:
+                "This submission has already been reviewed or is not currently reviewable.",
+            },
+            { status: 409 }
+          );
+
+        case "SUBMISSION_ALREADY_REVIEWED":
+          return NextResponse.json(
+            {
+              error:
+                "This submission was already processed by another review action.",
+            },
+            { status: 409 }
+          );
+
+        case "ASSIGNMENT_WORKER_MISMATCH":
+          return NextResponse.json(
+            {
+              error:
+                "The submission and assignment worker do not match.",
+            },
+            { status: 409 }
+          );
+
+        case "ASSIGNMENT_NOT_SUBMITTED":
+          return NextResponse.json(
+            {
+              error:
+                "The assignment is not currently awaiting review.",
+            },
+            { status: 409 }
+          );
+
+        case "TASK_NOT_SUBMITTED":
+          return NextResponse.json(
+            {
+              error:
+                "The task is not currently awaiting review.",
+            },
+            { status: 409 }
+          );
+
+        case "EARNING_ALREADY_EXISTS":
+          return NextResponse.json(
+            {
+              error:
+                "This assignment has already generated an earning.",
+            },
+            { status: 409 }
+          );
+
+        case "ASSIGNMENT_STATE_CHANGED":
+          return NextResponse.json(
+            {
+              error:
+                "The assignment state changed before the review could be completed.",
+            },
+            { status: 409 }
+          );
+
+        case "TASK_STATE_CHANGED":
+          return NextResponse.json(
+            {
+              error:
+                "The task state changed before the review could be completed.",
+            },
+            { status: 409 }
+          );
+      }
+    }
+
     if (
       error &&
       typeof error === "object" &&
@@ -333,15 +631,17 @@ export async function PATCH(
       return NextResponse.json(
         {
           error:
-            "An earning already exists for this assignment.",
+            "An earning or review record already exists for this operation.",
         },
         { status: 409 }
       );
     }
 
+    console.error("Admin review error:", error);
+
     return NextResponse.json(
       {
-        error: "Failed to process review",
+        error: "Failed to process review.",
       },
       { status: 500 }
     );
