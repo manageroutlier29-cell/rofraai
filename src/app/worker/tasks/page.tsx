@@ -1,7 +1,10 @@
 import { prisma } from "@/lib/prisma";
+import { auth } from "@/auth";
 import TaskMarketplace from "./TaskMarketplace";
 
 export default async function WorkerTasksPage() {
+  const session = await auth();
+
   const tasks = await prisma.task.findMany({
     where: {
       status: "AVAILABLE",
@@ -19,6 +22,38 @@ export default async function WorkerTasksPage() {
     },
   });
 
+  let access = null;
+
+  if (session?.user?.id && session.user.role === "WORKER") {
+    const workerAccess = await prisma.workerAccess.findUnique({
+      where: {
+        workerId: session.user.id,
+      },
+      select: {
+        isUnlocked: true,
+        freeTaskLimit: true,
+        tasksClaimed: true,
+        unlockFee: true,
+      },
+    });
+
+    if (workerAccess) {
+      access = {
+        isUnlocked: workerAccess.isUnlocked,
+        freeTaskLimit: workerAccess.freeTaskLimit,
+        tasksClaimed: workerAccess.tasksClaimed,
+        tasksRemaining: workerAccess.isUnlocked
+          ? null
+          : Math.max(
+              workerAccess.freeTaskLimit -
+                workerAccess.tasksClaimed,
+              0
+            ),
+        unlockFee: workerAccess.unlockFee.toString(),
+      };
+    }
+  }
+
   const serializedTasks = tasks.map((task) => ({
     id: task.id,
     title: task.title,
@@ -32,11 +67,9 @@ export default async function WorkerTasksPage() {
 
   return (
     <div className="p-6 lg:p-8">
-
       <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
-
         <div>
-          <p className="text-sm text-cyan-400 font-semibold">
+          <p className="text-sm font-semibold text-cyan-400">
             MARKETPLACE
           </p>
 
@@ -50,7 +83,7 @@ export default async function WorkerTasksPage() {
         </div>
 
         <div className="rounded-xl border border-white/10 bg-white/[0.03] px-4 py-3">
-          <span className="text-gray-500 text-sm">
+          <span className="text-sm text-gray-500">
             Available
           </span>
 
@@ -58,11 +91,12 @@ export default async function WorkerTasksPage() {
             {tasks.length}
           </span>
         </div>
-
       </div>
 
-      <TaskMarketplace tasks={serializedTasks} />
-
+      <TaskMarketplace
+        tasks={serializedTasks}
+        access={access}
+      />
     </div>
   );
 }
