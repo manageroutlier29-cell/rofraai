@@ -42,10 +42,9 @@ export async function createIntaSendCheckout(
     {
       method: "POST",
       headers: {
-        Authorization:
-          `Bearer ${INTASEND_PUBLISHABLE_KEY}`,
-        "Content-Type": "application/json",
-      },
+  "X-IntaSend-Public-API-Key": INTASEND_PUBLISHABLE_KEY,
+  "Content-Type": "application/json",
+},
       body: JSON.stringify({
         first_name: input.firstName,
         last_name: input.lastName,
