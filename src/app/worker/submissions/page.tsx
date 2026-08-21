@@ -1,7 +1,35 @@
+import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 
 export default async function WorkerSubmissionsPage() {
+  const session = await auth();
+
+  if (!session?.user?.id) {
+    return (
+      <div className="p-6 lg:p-8">
+        <h1 className="text-3xl font-bold">My Submissions</h1>
+        <p className="mt-2 text-gray-400">
+          Please sign in to view your submissions.
+        </p>
+      </div>
+    );
+  }
+
+  if (session.user.role !== "WORKER") {
+    return (
+      <div className="p-6 lg:p-8">
+        <h1 className="text-3xl font-bold">My Submissions</h1>
+        <p className="mt-2 text-gray-400">
+          Only workers can view worker submissions.
+        </p>
+      </div>
+    );
+  }
+
   const submissions = await prisma.submission.findMany({
+    where: {
+      workerId: session.user.id,
+    },
     include: {
       assignment: {
         include: {

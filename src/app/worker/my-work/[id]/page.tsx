@@ -37,6 +37,22 @@ export default async function AssignmentPage({
           createdAt: "desc",
         },
         take: 1,
+        include: {
+          reviews: {
+            orderBy: {
+              createdAt: "desc",
+            },
+            take: 1,
+            include: {
+              reviewer: {
+                select: {
+                  firstName: true,
+                  lastName: true,
+                },
+              },
+            },
+          },
+        },
       },
     },
   });
@@ -111,6 +127,7 @@ export default async function AssignmentPage({
   })();
 
   const latestSubmission = assignment.submissions[0];
+  const latestReview = latestSubmission?.reviews[0];
 
   return (
     <div className="min-h-[calc(100vh-5rem)] bg-[#07111f]">
@@ -241,6 +258,36 @@ export default async function AssignmentPage({
               </div>
             )}
 
+            {latestReview && (
+              <div className="mt-5 rounded-2xl border border-amber-400/20 bg-amber-400/5 p-5">
+
+                <div className="flex items-center justify-between gap-4">
+
+                  <p className="text-xs font-semibold uppercase tracking-wider text-amber-400">
+                    Reviewer Feedback
+                  </p>
+
+                  {latestReview.score !== null && (
+                    <span className="text-sm font-semibold text-cyan-300">
+                      Score: {latestReview.score}/100
+                    </span>
+                  )}
+
+                </div>
+
+                {latestReview.feedback ? (
+                  <p className="mt-3 whitespace-pre-wrap text-sm leading-7 text-gray-300">
+                    {latestReview.feedback}
+                  </p>
+                ) : (
+                  <p className="mt-3 text-sm text-gray-500">
+                    No written feedback was provided.
+                  </p>
+                )}
+
+              </div>
+            )}
+
           </section>
         )}
 
@@ -268,27 +315,6 @@ export default async function AssignmentPage({
                 <p className="mt-2 text-sm leading-6 text-gray-400">
                   Your task has been claimed successfully.
                   Start the assignment when you are ready.
-                </p>
-
-                <div className="mt-5">
-                  <StartWorkButton
-                    assignmentId={assignment.id}
-                  />
-                </div>
-
-              </div>
-            )}
-
-            {/* ACCEPTED */}
-            {assignment.status === "ACCEPTED" && (
-              <div className="rounded-2xl border border-cyan-400/20 bg-cyan-400/5 p-5">
-
-                <p className="font-semibold text-cyan-300">
-                  Ready to start
-                </p>
-
-                <p className="mt-2 text-sm leading-6 text-gray-400">
-                  Start working on this assignment when you are ready.
                 </p>
 
                 <div className="mt-5">

@@ -26,21 +26,18 @@ export async function POST(
     const workerId = session.user.id;
     const { id: taskId } = await context.params;
 
+    if (!taskId) {
+      return NextResponse.json(
+        { error: "Task ID is required." },
+        { status: 400 }
+      );
+    }
+
     const result = await prisma.$transaction(async (tx) => {
-      const task = await tx.task.findUnique({
-        where: {
-          id: taskId,
-        },
-      });
-
-      if (!task) {
-        throw new Error("TASK_NOT_FOUND");
-      }
-
-      if (task.status !== "AVAILABLE") {
-        throw new Error("TASK_NOT_AVAILABLE");
-      }
-
+      /*
+       * Verify that the authenticated account is still
+       * an active worker.
+       */
       const worker = await tx.user.findUnique({
         where: {
           id: workerId,
@@ -63,14 +60,61 @@ export async function POST(
         throw new Error("WORKER_NOT_ACTIVE");
       }
 
-      const existingAssignment =
-        await tx.assignment.findFirst({
-          where: {
-            taskId,
-            workerId,
-            status: {
-              not: "CANCELLED",
+      /*
+       * Load the task and its project.
+       */
+      const task = await tx.task.findUnique({
+        where: {
+          id: taskId,
+        },
+        select: {
+          id: true,
+          title: true,
+          projectId: true,
+          status: true,
+          workerId: true,
+          project: {
+            select: {
+              id: true,
+              status: true,
             },
+          },
+        },
+      });
+
+      if (!task) {
+        throw new Error("TASK_NOT_FOUND");
+      }
+
+      /*
+       * A task may only be claimed while its project
+       * is still open or in progress.
+       */
+      if (
+        task.project.status !== "OPEN" &&
+        task.project.status !== "IN_PROGRESS"
+      ) {
+        throw new Error("PROJECT_NOT_CLAIMABLE");
+      }
+
+      /*
+       * If the worker already has an assignment for this
+       * task, reject the request.
+       *
+       * This matches the database constraint:
+       * @@unique([taskId, workerId])
+       */
+      const existingAssignment =
+        await tx.assignment.findUnique({
+          where: {
+            taskId_workerId: {
+              taskId,
+              workerId,
+            },
+          },
+          select: {
+            id: true,
+            status: true,
           },
         });
 
@@ -79,7 +123,43 @@ export async function POST(
       }
 
       /*
-       * Create the worker assignment.
+       * ATOMIC CLAIM
+       *
+       * The task is updated only if:
+       * - it is still AVAILABLE
+       * - it does not already have a worker
+       * - its project is still OPEN or IN_PROGRESS
+       *
+       * This prevents two workers from successfully
+       * claiming the same task during a race.
+       */
+      const claimed = await tx.task.updateMany({
+        where: {
+          id: taskId,
+          status: "AVAILABLE",
+          workerId: null,
+          project: {
+            status: {
+              in: ["OPEN", "IN_PROGRESS"],
+            },
+          },
+        },
+        data: {
+          workerId,
+          status: "ASSIGNED",
+        },
+      });
+
+      if (claimed.count !== 1) {
+        throw new Error("TASK_NOT_AVAILABLE");
+      }
+
+      /*
+       * Create the assignment only after the task has
+       * been atomically reserved for this worker.
+       *
+       * If this fails, the entire transaction rolls back,
+       * including the task claim.
        */
       const assignment = await tx.assignment.create({
         data: {
@@ -90,18 +170,15 @@ export async function POST(
         },
       });
 
-      /*
-       * Mark the task as assigned to this worker.
-       */
-      const updatedTask = await tx.task.update({
+      const updatedTask = await tx.task.findUnique({
         where: {
           id: taskId,
         },
-        data: {
-          workerId,
-          status: "ASSIGNED",
-        },
       });
+
+      if (!updatedTask) {
+        throw new Error("TASK_NOT_FOUND");
+      }
 
       return {
         assignment,
@@ -124,11 +201,20 @@ export async function POST(
             { status: 404 }
           );
 
+        case "PROJECT_NOT_CLAIMABLE":
+          return NextResponse.json(
+            {
+              error:
+                "This task cannot be claimed because its project is no longer open.",
+            },
+            { status: 409 }
+          );
+
         case "TASK_NOT_AVAILABLE":
           return NextResponse.json(
             {
               error:
-                "This task is no longer available.",
+                "This task is no longer available. Another worker may have claimed it.",
             },
             { status: 409 }
           );
@@ -137,7 +223,7 @@ export async function POST(
           return NextResponse.json(
             {
               error:
-                "You have already claimed this task.",
+                "You already have an assignment for this task.",
             },
             { status: 409 }
           );
@@ -159,6 +245,24 @@ export async function POST(
             { status: 403 }
           );
       }
+    }
+
+    /*
+     * Prisma unique constraint errors are handled explicitly.
+     */
+    if (
+      error &&
+      typeof error === "object" &&
+      "code" in error &&
+      error.code === "P2002"
+    ) {
+      return NextResponse.json(
+        {
+          error:
+            "This task has already been claimed or assigned.",
+        },
+        { status: 409 }
+      );
     }
 
     console.error("Claim task error:", error);
