@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { createIntaSendCheckout } from "@/lib/intasend-checkout";
+import { getUsdToKesRate } from "@/lib/payout-config";
 
 export async function POST(request: Request) {
   try {
@@ -16,7 +17,10 @@ export async function POST(request: Request) {
 
     if (session.user.role !== "WORKER") {
       return NextResponse.json(
-        { error: "Only workers can unlock marketplace access." },
+        {
+          error:
+            "Only workers can unlock marketplace access.",
+        },
         { status: 403 }
       );
     }
@@ -70,66 +74,112 @@ export async function POST(request: Request) {
       return NextResponse.json({
         success: true,
         alreadyUnlocked: true,
-        message: "Marketplace access is already unlocked.",
+        message:
+          "Marketplace access is already unlocked.",
       });
     }
 
-    /*
-     * Read the public origin from the request.
-     * The actual payment is still created server-side.
-     */
     const requestUrl = new URL(request.url);
     const host = requestUrl.origin;
 
     /*
-     * api_ref uniquely connects the IntaSend payment
-     * to our internal financial transaction.
+     * unlockFee is stored internally as USD.
+     *
+     * Example:
+     * USD 5.00 × 129.50 = KES 647.50
      */
-    const apiRef = `ACCESS_UNLOCK_${workerId}_${crypto.randomUUID()}`;
+    const amountUSD = Number(access.unlockFee);
 
-    const amountKES = Number(access.unlockFee);
-
-    if (!Number.isFinite(amountKES) || amountKES <= 0) {
+    if (
+      !Number.isFinite(amountUSD) ||
+      amountUSD <= 0
+    ) {
       return NextResponse.json(
-        { error: "The marketplace unlock fee is invalid." },
+        {
+          error:
+            "The marketplace unlock fee is invalid.",
+        },
+        { status: 500 }
+      );
+    }
+
+    const exchangeRate = getUsdToKesRate();
+
+    const amountKES =
+      Math.round(amountUSD * exchangeRate * 100) / 100;
+
+    if (
+      !Number.isFinite(amountKES) ||
+      amountKES <= 0
+    ) {
+      return NextResponse.json(
+        {
+          error:
+            "The marketplace payment amount could not be calculated.",
+        },
         { status: 500 }
       );
     }
 
     /*
-     * Create the internal pending transaction first.
-     *
-     * The worker is NOT unlocked here.
-     * Unlocking happens only after confirmed payment.
+     * Internal reference connecting our USD transaction
+     * to the IntaSend collection.
      */
-    const transaction = await prisma.transaction.create({
-      data: {
-        userId: workerId,
-        type: "ACCESS_UNLOCK",
-        status: "PENDING",
-        amount: amountKES,
-        currency: "KES",
-        reference: apiRef,
-        description: "ROFRAAI marketplace access unlock",
-        metadata: {
-          workerId,
-          unlockFee: amountKES,
-          provider: "INTASEND",
+    const apiRef =
+      `ACCESS_UNLOCK_${workerId}_${crypto.randomUUID()}`;
+
+    /*
+     * Internal ledger remains USD.
+     */
+    const transaction =
+      await prisma.transaction.create({
+        data: {
+          userId: workerId,
+          type: "ACCESS_UNLOCK",
           status: "PENDING",
+
+          // Internal marketplace price.
+          amount: amountUSD,
+          currency: "USD",
+
+          reference: apiRef,
+          description:
+            "ROFRAAI marketplace access unlock",
+
+          metadata: {
+            workerId,
+            unlockFeeUSD: amountUSD,
+
+            provider: "INTASEND",
+
+            // Actual collection amount.
+            collectionAmountKES: amountKES,
+
+            exchangeRate,
+            collectionCurrency: "KES",
+
+            status: "PENDING",
+          },
         },
-      },
-    });
+      });
 
     try {
-      const checkout = await createIntaSendCheckout({
-        firstName: worker.firstName || "ROFRAAI",
-        lastName: worker.lastName || "Worker",
-        email: worker.email,
-        amountKES,
-        apiRef,
-        host,
-        redirectUrl: `${host}/worker/earnings?unlock=complete`,
-      });
+      const checkout =
+        await createIntaSendCheckout({
+          firstName:
+            worker.firstName || "ROFRAAI",
+          lastName:
+            worker.lastName || "Worker",
+          email: worker.email,
+
+          // IntaSend receives the converted KES amount.
+          amountKES,
+
+          apiRef,
+          host,
+          redirectUrl:
+            `${host}/worker/earnings?unlock=complete`,
+        });
 
       const checkoutUrl =
         typeof checkout.url === "string"
@@ -150,11 +200,18 @@ export async function POST(request: Request) {
             status: "FAILED",
             metadata: {
               workerId,
-              unlockFee: amountKES,
+              unlockFeeUSD: amountUSD,
               provider: "INTASEND",
+              collectionAmountKES: amountKES,
+              exchangeRate,
+              collectionCurrency: "KES",
               status: "FAILED",
-              error: "IntaSend did not return a checkout URL.",
-              response: JSON.parse(JSON.stringify(checkout)),
+              error:
+                "IntaSend did not return a checkout URL.",
+              response:
+                JSON.parse(
+                  JSON.stringify(checkout)
+                ),
             },
           },
         });
@@ -175,8 +232,11 @@ export async function POST(request: Request) {
         data: {
           metadata: {
             workerId,
-            unlockFee: amountKES,
+            unlockFeeUSD: amountUSD,
             provider: "INTASEND",
+            collectionAmountKES: amountKES,
+            exchangeRate,
+            collectionCurrency: "KES",
             status: "PENDING",
             invoiceId,
             checkoutUrl,
@@ -187,12 +247,20 @@ export async function POST(request: Request) {
       return NextResponse.json({
         success: true,
         alreadyUnlocked: false,
+
         transactionId: transaction.id,
         apiRef,
         invoiceId,
         checkoutUrl,
-        amount: amountKES.toFixed(2),
-        currency: "KES",
+
+        // What the worker is purchasing.
+        amount: amountUSD.toFixed(2),
+        currency: "USD",
+
+        // Actual amount sent to IntaSend.
+        collectionAmount: amountKES.toFixed(2),
+        collectionCurrency: "KES",
+        exchangeRate,
       });
     } catch (checkoutError) {
       await prisma.transaction.update({
@@ -203,8 +271,11 @@ export async function POST(request: Request) {
           status: "FAILED",
           metadata: {
             workerId,
-            unlockFee: amountKES,
+            unlockFeeUSD: amountUSD,
             provider: "INTASEND",
+            collectionAmountKES: amountKES,
+            exchangeRate,
+            collectionCurrency: "KES",
             status: "FAILED",
             error:
               checkoutError instanceof Error

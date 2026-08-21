@@ -42,17 +42,21 @@ export async function createIntaSendCheckout(
     {
       method: "POST",
       headers: {
-  "X-IntaSend-Public-API-Key": INTASEND_PUBLISHABLE_KEY,
-  "Content-Type": "application/json",
-},
+        "X-IntaSend-Public-API-Key":
+          INTASEND_PUBLISHABLE_KEY,
+        "Content-Type": "application/json",
+      },
       body: JSON.stringify({
         first_name: input.firstName,
         last_name: input.lastName,
         email: input.email,
         phone_number: input.phoneNumber,
         country: "KE",
+
+        // IntaSend collection is made in KES.
         amount: input.amountKES.toFixed(2),
         currency: "KES",
+
         api_ref: input.apiRef,
         method: "M-PESA",
         channel: "WEBSITE",

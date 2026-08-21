@@ -186,7 +186,7 @@ export default function TaskMarketplace({
                 >
                   {unlocking
                     ? "Opening Payment..."
-                    : `Unlock Access — KES ${access.unlockFee}`}
+                    : `Unlock Access — $${access.unlockFee}`}
                 </button>
               )}
           </div>
