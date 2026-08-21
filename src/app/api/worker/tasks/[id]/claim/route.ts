@@ -61,6 +61,36 @@ export async function POST(
       }
 
       /*
+       * Load marketplace access.
+       *
+       * Every worker should have a WorkerAccess record,
+       * but we handle a missing record explicitly instead
+       * of silently bypassing the marketplace rules.
+       */
+      const access = await tx.workerAccess.findUnique({
+        where: {
+          workerId,
+        },
+      });
+
+      if (!access) {
+        throw new Error("WORKER_ACCESS_NOT_FOUND");
+      }
+
+      /*
+       * Unlocked workers can continue claiming tasks.
+       *
+       * Locked workers may claim only while they remain
+       * within their free-task allowance.
+       */
+      if (
+        !access.isUnlocked &&
+        access.tasksClaimed >= access.freeTaskLimit
+      ) {
+        throw new Error("FREE_TASK_LIMIT_REACHED");
+      }
+
+      /*
        * Load the task and its project.
        */
       const task = await tx.task.findUnique({
@@ -100,9 +130,6 @@ export async function POST(
       /*
        * If the worker already has an assignment for this
        * task, reject the request.
-       *
-       * This matches the database constraint:
-       * @@unique([taskId, workerId])
        */
       const existingAssignment =
         await tx.assignment.findUnique({
@@ -125,13 +152,8 @@ export async function POST(
       /*
        * ATOMIC CLAIM
        *
-       * The task is updated only if:
-       * - it is still AVAILABLE
-       * - it does not already have a worker
-       * - its project is still OPEN or IN_PROGRESS
-       *
-       * This prevents two workers from successfully
-       * claiming the same task during a race.
+       * The task is updated only if it is still AVAILABLE
+       * and does not already have a worker.
        */
       const claimed = await tx.task.updateMany({
         where: {
@@ -155,11 +177,7 @@ export async function POST(
       }
 
       /*
-       * Create the assignment only after the task has
-       * been atomically reserved for this worker.
-       *
-       * If this fails, the entire transaction rolls back,
-       * including the task claim.
+       * Create the worker assignment.
        */
       const assignment = await tx.assignment.create({
         data: {
@@ -170,19 +188,58 @@ export async function POST(
         },
       });
 
+      /*
+       * Count this successful claim.
+       *
+       * This happens inside the same transaction as the
+       * task claim, so a failed claim cannot consume a
+       * free-task allowance.
+       */
+      const updatedAccess = await tx.workerAccess.updateMany({
+        where: {
+          workerId,
+          ...(access.isUnlocked
+            ? {}
+            : {
+                tasksClaimed: {
+                  lt: access.freeTaskLimit,
+                },
+              }),
+        },
+        data: {
+          tasksClaimed: {
+            increment: 1,
+          },
+        },
+      });
+
+      if (updatedAccess.count !== 1) {
+        throw new Error("FREE_TASK_LIMIT_REACHED");
+      }
+
+      /*
+       * Return the updated records.
+       */
       const updatedTask = await tx.task.findUnique({
         where: {
           id: taskId,
         },
       });
 
-      if (!updatedTask) {
-        throw new Error("TASK_NOT_FOUND");
+      const finalAccess = await tx.workerAccess.findUnique({
+        where: {
+          workerId,
+        },
+      });
+
+      if (!updatedTask || !finalAccess) {
+        throw new Error("STATE_SYNC_FAILED");
       }
 
       return {
         assignment,
         task: updatedTask,
+        access: finalAccess,
       };
     });
 
@@ -191,6 +248,19 @@ export async function POST(
       message: "Task claimed successfully.",
       assignment: result.assignment,
       task: result.task,
+      access: {
+        isUnlocked: result.access.isUnlocked,
+        freeTaskLimit: result.access.freeTaskLimit,
+        tasksClaimed: result.access.tasksClaimed,
+        tasksRemaining: result.access.isUnlocked
+          ? null
+          : Math.max(
+              result.access.freeTaskLimit -
+                result.access.tasksClaimed,
+              0
+            ),
+        unlockFee: result.access.unlockFee.toString(),
+      },
     });
   } catch (error) {
     if (error instanceof Error) {
@@ -239,10 +309,37 @@ export async function POST(
         case "WORKER_NOT_ACTIVE":
           return NextResponse.json(
             {
-              error:
-                "Your worker account is not active.",
+              error: "Your worker account is not active.",
             },
             { status: 403 }
+          );
+
+        case "WORKER_ACCESS_NOT_FOUND":
+          return NextResponse.json(
+            {
+              error:
+                "Your marketplace access record could not be found. Please contact support.",
+            },
+            { status: 500 }
+          );
+
+        case "FREE_TASK_LIMIT_REACHED":
+          return NextResponse.json(
+            {
+              error:
+                "You have reached your free task limit. Unlock marketplace access to claim more tasks.",
+              requiresUnlock: true,
+            },
+            { status: 403 }
+          );
+
+        case "STATE_SYNC_FAILED":
+          return NextResponse.json(
+            {
+              error:
+                "The task claim could not be synchronized.",
+            },
+            { status: 409 }
           );
       }
     }

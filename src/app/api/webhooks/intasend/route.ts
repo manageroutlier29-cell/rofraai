@@ -1,15 +1,370 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 
+/*
+ * IntaSend sends different webhook payloads for:
+ *
+ * 1. Payment collection / checkout
+ *    - api_ref
+ *    - state
+ *
+ * 2. Send Money / payouts
+ *    - tracking_id
+ *    - transactions[]
+ *
+ * This webhook handles both flows.
+ */
+
 export async function POST(request: Request) {
   try {
     const payload = await request.json();
+    const webhookChallenge =
+  process.env.INTASEND_WEBHOOK_CHALLENGE;
+
+if (!webhookChallenge) {
+  console.error(
+    "IntaSend webhook challenge is not configured."
+  );
+
+  return NextResponse.json(
+    {
+      error:
+        "Webhook security configuration is missing.",
+    },
+    { status: 500 }
+  );
+}
+
+if (
+  typeof payload?.challenge !== "string" ||
+  payload.challenge !== webhookChallenge
+) {
+  console.warn(
+    "Rejected IntaSend webhook: invalid challenge."
+  );
+
+  return NextResponse.json(
+    {
+      error: "Invalid webhook challenge.",
+    },
+    { status: 401 }
+  );
+}
 
     console.log(
       "IntaSend webhook received:",
       JSON.stringify(payload, null, 2)
     );
 
+    /*
+     * ============================================================
+     * PAYMENT COLLECTION / MARKETPLACE ACCESS UNLOCK
+     * ============================================================
+     *
+     * Our unlock checkout creates:
+     *
+     * ACCESS_UNLOCK_<workerId>_<uuid>
+     *
+     * and sends it to IntaSend as api_ref.
+     */
+    const apiRef =
+      typeof payload?.api_ref === "string"
+        ? payload.api_ref
+        : typeof payload?.apiRef === "string"
+          ? payload.apiRef
+          : null;
+
+    if (
+      apiRef &&
+      apiRef.startsWith("ACCESS_UNLOCK_")
+    ) {
+      const paymentState =
+        typeof payload?.state === "string"
+          ? payload.state.toUpperCase()
+          : null;
+
+      console.log(
+        "IntaSend access unlock webhook:",
+        {
+          apiRef,
+          paymentState,
+        }
+      );
+
+      /*
+       * Find the internal transaction using our own
+       * unique reference.
+       */
+      const unlockTransaction =
+        await prisma.transaction.findFirst({
+          where: {
+            reference: apiRef,
+            type: "ACCESS_UNLOCK",
+          },
+        });
+
+      if (!unlockTransaction) {
+        console.warn(
+          "IntaSend access unlock transaction not found:",
+          apiRef
+        );
+
+        /*
+         * Return 200 so IntaSend does not repeatedly retry
+         * an event for an unknown internal reference.
+         */
+        return NextResponse.json({
+          received: true,
+          message:
+            "Access unlock transaction not found.",
+        });
+      }
+
+      /*
+       * Idempotency:
+       *
+       * Once the transaction has been finalized,
+       * never unlock the worker again.
+       */
+      if (
+        unlockTransaction.status === "COMPLETED" ||
+        unlockTransaction.status === "FAILED"
+      ) {
+        return NextResponse.json({
+          received: true,
+          transactionId: unlockTransaction.id,
+          apiRef,
+          status: unlockTransaction.status,
+          message:
+            "Access unlock transaction already finalized.",
+        });
+      }
+
+      /*
+       * SUCCESS
+       *
+       * IntaSend payment collection completion is represented
+       * by COMPLETE.
+       */
+      if (
+        paymentState === "COMPLETE" ||
+        paymentState === "COMPLETED" ||
+        paymentState === "SUCCESSFUL"
+      ) {
+        await prisma.$transaction(async (tx) => {
+          /*
+           * Re-read inside the transaction to protect against
+           * duplicate webhook delivery.
+           */
+          const current =
+            await tx.transaction.findUnique({
+              where: {
+                id: unlockTransaction.id,
+              },
+            });
+
+          if (!current) {
+            throw new Error(
+              "ACCESS_UNLOCK_TRANSACTION_NOT_FOUND"
+            );
+          }
+
+          if (
+            current.status === "COMPLETED" ||
+            current.status === "FAILED"
+          ) {
+            return;
+          }
+
+          /*
+           * The transaction reference is generated internally
+           * as ACCESS_UNLOCK_<workerId>_<uuid>.
+           *
+           * We already know the worker from the transaction's
+           * userId, so we do NOT trust worker information from
+           * the webhook payload.
+           */
+          const workerId = current.userId;
+
+          if (!workerId) {
+            throw new Error(
+              "ACCESS_UNLOCK_WORKER_NOT_FOUND"
+            );
+          }
+
+          const access =
+            await tx.workerAccess.findUnique({
+              where: {
+                workerId,
+              },
+            });
+
+          if (!access) {
+            throw new Error(
+              "WORKER_ACCESS_NOT_FOUND"
+            );
+          }
+
+          /*
+           * Unlock marketplace access and finalize the
+           * internal financial transaction atomically.
+           */
+          await tx.workerAccess.update({
+            where: {
+              workerId,
+            },
+            data: {
+              isUnlocked: true,
+            },
+          });
+
+          await tx.transaction.update({
+            where: {
+              id: current.id,
+            },
+            data: {
+              status: "COMPLETED",
+              metadata: {
+                ...(typeof current.metadata === "object" &&
+                current.metadata !== null
+                  ? current.metadata
+                  : {}),
+                workerId,
+                provider: "INTASEND",
+                status: "COMPLETED",
+                apiRef,
+                providerState: paymentState,
+                invoiceId:
+                  typeof payload?.invoice_id ===
+                  "string"
+                    ? payload.invoice_id
+                    : null,
+                trackingId:
+                  typeof payload?.tracking_id ===
+                  "string"
+                    ? payload.tracking_id
+                    : null,
+                completedAt:
+                  new Date().toISOString(),
+              },
+            },
+          });
+        });
+
+        console.log(
+          "IntaSend marketplace access unlocked:",
+          {
+            transactionId:
+              unlockTransaction.id,
+            apiRef,
+            workerId:
+              unlockTransaction.userId,
+          }
+        );
+
+        return NextResponse.json({
+          received: true,
+          transactionId: unlockTransaction.id,
+          apiRef,
+          status: "COMPLETED",
+          accessUnlocked: true,
+        });
+      }
+
+      /*
+       * FAILURE
+       *
+       * Do not unlock the worker.
+       */
+      const failedStates = [
+        "FAILED",
+        "CANCELLED",
+        "CANCELED",
+        "DECLINED",
+        "REJECTED",
+        "UNSUCCESSFUL",
+      ];
+
+      if (
+        paymentState &&
+        failedStates.includes(paymentState)
+      ) {
+        await prisma.transaction.updateMany({
+          where: {
+            id: unlockTransaction.id,
+            status: "PENDING",
+          },
+          data: {
+            status: "FAILED",
+            metadata: {
+              ...(typeof unlockTransaction.metadata ===
+                "object" &&
+              unlockTransaction.metadata !== null
+                ? unlockTransaction.metadata
+                : {}),
+              provider: "INTASEND",
+              status: "FAILED",
+              apiRef,
+              providerState: paymentState,
+              failureReason:
+                typeof payload?.message === "string"
+                  ? payload.message
+                  : "IntaSend payment failed.",
+            },
+          },
+        });
+
+        console.log(
+          "IntaSend marketplace unlock payment failed:",
+          {
+            transactionId:
+              unlockTransaction.id,
+            apiRef,
+            paymentState,
+          }
+        );
+
+        return NextResponse.json({
+          received: true,
+          transactionId: unlockTransaction.id,
+          apiRef,
+          status: "FAILED",
+          accessUnlocked: false,
+        });
+      }
+
+      /*
+       * PENDING / PROCESSING / UNKNOWN INTERMEDIATE STATE
+       *
+       * Do not modify access or balances.
+       */
+      console.log(
+        "IntaSend marketplace unlock still processing:",
+        {
+          transactionId:
+            unlockTransaction.id,
+          apiRef,
+          paymentState,
+        }
+      );
+
+      return NextResponse.json({
+        received: true,
+        transactionId: unlockTransaction.id,
+        apiRef,
+        status: "PROCESSING",
+        providerState: paymentState,
+        accessUnlocked: false,
+      });
+    }
+
+    /*
+     * ============================================================
+     * SEND MONEY / WITHDRAWAL
+     * ============================================================
+     *
+     * Existing withdrawal processing remains below.
+     */
     const trackingId =
       typeof payload?.tracking_id === "string"
         ? payload.tracking_id
@@ -20,7 +375,8 @@ export async function POST(request: Request) {
     if (!trackingId) {
       return NextResponse.json({
         received: true,
-        message: "Webhook received without tracking ID.",
+        message:
+          "Webhook received without tracking ID or access unlock api_ref.",
       });
     }
 
@@ -93,15 +449,13 @@ export async function POST(request: Request) {
         : null;
 
     const statusDescription =
-      typeof transaction.status_description === "string"
+      typeof transaction.status_description ===
+      "string"
         ? transaction.status_description
         : null;
 
     /*
      * SUCCESS
-     *
-     * IntaSend's send-money events use "Successful"
-     * for a successful individual transaction.
      */
     if (
       transactionStatus?.toLowerCase() ===
@@ -119,9 +473,6 @@ export async function POST(request: Request) {
           return;
         }
 
-        /*
-         * Protect against duplicate webhook delivery.
-         */
         if (
           current.status === "PAID" ||
           current.status === "FAILED" ||
@@ -143,10 +494,6 @@ export async function POST(request: Request) {
           );
         }
 
-        /*
-         * Move the withdrawn USD amount from
-         * pending balance to paid balance.
-         */
         await tx.workerWallet.update({
           where: {
             id: wallet.id,
@@ -161,9 +508,6 @@ export async function POST(request: Request) {
           },
         });
 
-        /*
-         * Store the provider's final reference.
-         */
         const providerReference =
           typeof transaction.provider_reference ===
           "string"
@@ -176,20 +520,14 @@ export async function POST(request: Request) {
           },
           data: {
             status: "PAID",
-
             paymentReference:
               providerReference ||
               current.paymentReference,
-
             processedAt: new Date(),
-
             failureReason: null,
           },
         });
 
-        /*
-         * Finalize the corresponding transaction.
-         */
         await tx.transaction.updateMany({
           where: {
             reference: current.id,
@@ -197,7 +535,6 @@ export async function POST(request: Request) {
           },
           data: {
             status: "COMPLETED",
-
             metadata: {
               withdrawalId: current.id,
               paymentMethod:
@@ -230,9 +567,6 @@ export async function POST(request: Request) {
 
     /*
      * FAILURE
-     *
-     * Return the reserved USD amount from pending
-     * back to available balance.
      */
     const failedStatuses = [
       "failed",
@@ -279,9 +613,6 @@ export async function POST(request: Request) {
           );
         }
 
-        /*
-         * Return the reserved USD amount.
-         */
         await tx.workerWallet.update({
           where: {
             id: wallet.id,
@@ -302,11 +633,9 @@ export async function POST(request: Request) {
           },
           data: {
             status: "FAILED",
-
             failureReason:
               statusDescription ||
               "M-Pesa payout failed.",
-
             processedAt: new Date(),
           },
         });
@@ -318,7 +647,6 @@ export async function POST(request: Request) {
           },
           data: {
             status: "FAILED",
-
             metadata: {
               withdrawalId: current.id,
               paymentMethod:
@@ -352,10 +680,9 @@ export async function POST(request: Request) {
     }
 
     /*
-     * Intermediate states:
+     * Intermediate withdrawal states.
      *
      * Do not touch wallet balances.
-     * The withdrawal remains PROCESSING.
      */
     console.log(
       "IntaSend withdrawal still processing:",

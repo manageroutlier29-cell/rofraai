@@ -91,6 +91,33 @@ async function main() {
 
   console.log(`✅ Worker: ${worker.email}`);
 
+  await prisma.workerWallet.upsert({
+    where: {
+      workerId: worker.id,
+    },
+    update: {},
+    create: {
+      workerId: worker.id,
+    },
+  });
+
+  await prisma.workerAccess.upsert({
+    where: {
+      workerId: worker.id,
+    },
+    update: {},
+    create: {
+      workerId: worker.id,
+      freeTaskLimit: 3,
+      tasksClaimed: 0,
+      tasksCompleted: 0,
+      isUnlocked: false,
+      unlockFee: 5.00,
+    },
+  });
+
+  console.log(`✅ Worker wallet and marketplace access ready`);
+
   const project = await prisma.project.create({
     data: {
       clientId: client.id,

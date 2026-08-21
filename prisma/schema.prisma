@@ -387,6 +387,7 @@ enum QualificationStatus {
 enum TransactionType {
   CLIENT_PAYMENT
   TASK_EARNING
+  ACCESS_UNLOCK
   WITHDRAWAL
   WITHDRAWAL_REVERSAL
   REFUND
