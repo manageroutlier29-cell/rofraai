@@ -336,13 +336,24 @@ export default function RegisterPage() {
                   />
 
                   <span>
-                    I agree to the ROFRAAI{" "}
-                    <span className="text-cyan-400">
-                      Terms of Service
-                    </span>{" "}
-                    and{" "}
-                    <span className="text-cyan-400">Privacy Policy</span>.
-                  </span>
+  I agree to the ROFRAAI{" "}
+  <Link
+    href="/terms"
+    target="_blank"
+    className="text-cyan-400 hover:text-cyan-300 underline"
+  >
+    Terms of Service
+  </Link>{" "}
+  and{" "}
+  <Link
+    href="/privacy"
+    target="_blank"
+    className="text-cyan-400 hover:text-cyan-300 underline"
+  >
+    Privacy Policy
+  </Link>
+  .
+</span>
                 </label>
 
                 {/* SUBMIT */}
