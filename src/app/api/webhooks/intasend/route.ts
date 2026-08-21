@@ -215,6 +215,8 @@ if (
             },
             data: {
               isUnlocked: true,
+              unlockedAt: new Date(),
+              unlockTransactionId: current.id,
             },
           });
 
