@@ -10,7 +10,7 @@ export async function POST(request: Request) {
     const lastName = String(body.lastName ?? "").trim();
     const email = String(body.email ?? "").trim().toLowerCase();
     const password = String(body.password ?? "");
-    const role = String(body.role ?? "WORKER").toUpperCase();
+    const role = "WORKER";
 
     if (!firstName || !lastName || !email || !password) {
       return NextResponse.json(
@@ -22,13 +22,6 @@ export async function POST(request: Request) {
     if (password.length < 8) {
       return NextResponse.json(
         { error: "Password must be at least 8 characters." },
-        { status: 400 }
-      );
-    }
-
-    if (role !== "WORKER" && role !== "CLIENT") {
-      return NextResponse.json(
-        { error: "Invalid account type." },
         { status: 400 }
       );
     }
@@ -76,14 +69,6 @@ export async function POST(request: Request) {
         await tx.workerAccess.create({
           data: {
             workerId: createdUser.id,
-          },
-        });
-      }
-
-      if (role === "CLIENT") {
-        await tx.clientProfile.create({
-          data: {
-            userId: createdUser.id,
           },
         });
       }

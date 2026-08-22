@@ -7,7 +7,6 @@ import { FormEvent, useState } from "react";
 
 export default function RegisterPage() {
   const router = useRouter();
-  const [role, setRole] = useState("WORKER");
   const [showPassword, setShowPassword] = useState(false);
 
   const [firstName, setFirstName] = useState("");
@@ -47,7 +46,7 @@ export default function RegisterPage() {
           lastName: lastName.trim(),
           email: email.trim().toLowerCase(),
           password,
-          role,
+          role: "WORKER",
         }),
       });
 
@@ -146,9 +145,9 @@ export default function RegisterPage() {
               </h1>
 
               <p className="mt-6 text-lg leading-relaxed text-gray-400">
-                Whether you are a skilled professional looking for
-                opportunities or a business looking for specialized talent,
-                ROFRAAI connects you to the right ecosystem.
+                Create your freelancer profile, build your professional
+                reputation and discover opportunities to work on AI projects
+                with businesses around the world.
               </p>
 
               <div className="mt-10 space-y-4">
@@ -181,10 +180,15 @@ export default function RegisterPage() {
             </Link>
 
             <div className="rounded-3xl border border-white/10 bg-white/[0.04] p-8 shadow-2xl backdrop-blur-xl md:p-10">
-              <h2 className="text-3xl font-bold">Create your account</h2>
+              <p className="font-semibold text-cyan-400">FOR FREELANCERS</p>
+
+              <h2 className="mt-3 text-3xl font-bold">
+                Create your freelancer account
+              </h2>
 
               <p className="mt-2 text-gray-400">
-                Join the ROFRAAI ecosystem.
+                Join ROFRAAI as a freelancer and discover opportunities to
+                work on AI projects.
               </p>
 
               {error && (
@@ -192,31 +196,6 @@ export default function RegisterPage() {
                   {error}
                 </div>
               )}
-
-              {/* ROLE */}
-              <div className="mt-8">
-                <p className="mb-3 text-sm font-medium text-gray-300">
-                  I want to...
-                </p>
-
-                <div className="grid grid-cols-2 gap-3">
-                  <RoleButton
-                    active={role === "WORKER"}
-                    title="Find Work"
-                    description="I'm a freelancer"
-                    onClick={() => setRole("WORKER")}
-                    disabled={loading}
-                  />
-
-                  <RoleButton
-                    active={role === "CLIENT"}
-                    title="Hire Talent"
-                    description="I'm a client"
-                    onClick={() => setRole("CLIENT")}
-                    disabled={loading}
-                  />
-                </div>
-              </div>
 
               {/* FORM */}
               <form className="mt-7 space-y-5" onSubmit={handleSubmit}>
@@ -392,53 +371,13 @@ export default function RegisterPage() {
   );
 }
 
-function RoleButton({
-  active,
-  title,
-  description,
-  onClick,
-  disabled,
-}: {
-  active: boolean;
-  title: string;
-  description: string;
-  onClick: () => void;
-  disabled: boolean;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      disabled={disabled}
-      className={`rounded-xl border p-4 text-left transition ${
-        active
-          ? "border-cyan-400/50 bg-cyan-400/10"
-          : "border-white/10 bg-black/20 hover:bg-white/5"
-      } disabled:cursor-not-allowed disabled:opacity-60`}
-    >
-      <div className="flex items-center justify-between">
-        <span className="font-semibold">{title}</span>
-
-        <span
-          className={`h-3 w-3 rounded-full ${
-            active ? "bg-cyan-400" : "bg-white/10"
-          }`}
-        />
-      </div>
-
-      <p className="mt-1 text-xs text-gray-500">{description}</p>
-    </button>
-  );
-}
-
 function Benefit({ text }: { text: string }) {
   return (
-    <div className="flex items-center gap-3">
-      <div className="flex h-6 w-6 items-center justify-center rounded-full bg-cyan-400/10 text-cyan-400">
+    <div className="flex items-center gap-3 text-gray-300">
+      <span className="flex h-6 w-6 items-center justify-center rounded-full bg-cyan-400/10 text-sm text-cyan-400">
         ✓
-      </div>
-
-      <span className="text-gray-300">{text}</span>
+      </span>
+      <span>{text}</span>
     </div>
   );
 }
