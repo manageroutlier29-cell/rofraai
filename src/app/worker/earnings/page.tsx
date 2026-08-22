@@ -159,7 +159,11 @@ export default function EarningsPage() {
   }
 
 useEffect(() => {
-    loadEarnings();
+    const timer = window.setTimeout(() => {
+      void loadEarnings();
+    }, 0);
+
+    return () => window.clearTimeout(timer);
   }, []);
 
   const balance = data?.balance ?? {

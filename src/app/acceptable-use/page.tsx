@@ -50,7 +50,7 @@ export default function AcceptableUsePage() {
             <h2 className="mb-3 text-2xl font-bold text-white">3. Platform Security</h2>
             <p>You must not attempt to:</p>
             <ul className="mt-4 list-disc space-y-2 pl-6">
-              <li>access another user's account;</li>
+              <li>access another user&apos;s account;</li>
               <li>bypass authentication or authorization;</li>
               <li>probe or attack platform infrastructure;</li>
               <li>introduce malware or malicious code;</li>

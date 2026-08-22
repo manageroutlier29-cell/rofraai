@@ -92,7 +92,7 @@ export default function TermsPage() {
             </p>
 
             <p className="mt-4">
-              You may not create an account using another person's identity,
+              You may not create an account using another person&apos;s identity,
               impersonate another person, or maintain multiple accounts for
               the purpose of manipulating the marketplace.
             </p>
@@ -180,7 +180,7 @@ export default function TermsPage() {
               Payment processing may involve third-party payment providers.
               Processing delays, rejected transactions, provider outages,
               incorrect payment details, or other circumstances outside
-              ROFRAAI's direct control may affect the timing of a payment.
+              ROFRAAI&apos;s direct control may affect the timing of a payment.
             </p>
 
             <p className="mt-4">
@@ -319,7 +319,7 @@ export default function TermsPage() {
             <p className="mt-4">
               You are responsible for ensuring that you have the necessary
               rights and permissions to submit such material and that your
-              submissions do not unlawfully infringe another person's rights.
+              submissions do not unlawfully infringe another person&apos;s rights.
             </p>
           </section>
 
