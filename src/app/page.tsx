@@ -46,12 +46,6 @@ export default function Home() {
               For Clients
             </Link>
 
-            <Link
-              href="/pricing"
-              className="transition hover:text-white"
-            >
-              Pricing
-            </Link>
           </div>
 
           {/* DESKTOP ACTIONS */}
@@ -91,7 +85,6 @@ export default function Home() {
 
               <Link href="/clients">For Clients</Link>
 
-              <Link href="/pricing">Pricing</Link>
 
               <Link href="/login">Login</Link>
 
@@ -483,12 +476,6 @@ export default function Home() {
               Clients
             </Link>
 
-            <Link
-              href="/pricing"
-              className="hover:text-white"
-            >
-              Pricing
-            </Link>
 
             <Link
               href="/login"

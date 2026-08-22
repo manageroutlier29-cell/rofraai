@@ -91,25 +91,15 @@ export default function ForClientsPage() {
               For Freelancers
             </Link>
 
-            <Link href="/pricing" className="transition hover:text-white">
-              Pricing
-            </Link>
           </div>
 
           <div className="flex items-center gap-3">
-            <Link
-              href="/login"
-              className="hidden rounded-xl border border-white/15 px-5 py-2.5 transition hover:bg-white/10 sm:block"
-            >
-              Login
-            </Link>
-
-            <Link
-              href="/register"
+            <a
+              href="mailto:robertwaweru324@gmail.com"
               className="rounded-xl bg-cyan-400 px-5 py-2.5 font-semibold text-[#06101d] transition hover:bg-cyan-300"
             >
-              Get Started
-            </Link>
+              Contact Us
+            </a>
           </div>
         </div>
       </nav>
@@ -142,12 +132,12 @@ export default function ForClientsPage() {
             </p>
 
             <div className="mt-9 flex flex-col gap-4 sm:flex-row">
-              <Link
-                href="/register"
+              <a
+                href="mailto:robertwaweru324@gmail.com?subject=ROFRAAI%20Business%20Inquiry"
                 className="rounded-2xl bg-cyan-400 px-7 py-4 text-center font-bold text-[#06101d] shadow-lg shadow-cyan-400/20 transition hover:bg-cyan-300"
               >
-                Start a Project →
-              </Link>
+                Contact ROFRAAI →
+              </a>
 
               <Link
                 href="#solutions"
@@ -427,12 +417,16 @@ export default function ForClientsPage() {
               project.
             </p>
 
-            <Link
-              href="/register"
+            <a
+              href="mailto:robertwaweru324@gmail.com?subject=ROFRAAI%20Business%20Inquiry"
               className="mt-8 inline-block rounded-2xl bg-cyan-400 px-8 py-4 font-bold text-black transition hover:bg-cyan-300"
             >
-              Start a Project →
-            </Link>
+              Contact ROFRAAI →
+            </a>
+
+            <p className="mt-4 text-sm text-gray-500">
+              robertwaweru324@gmail.com · +243790523593
+            </p>
           </div>
         </div>
       </section>
